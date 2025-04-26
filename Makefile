@@ -1,4 +1,3 @@
-# 位於 src/Makefile (top-level Makefile)
 
 .PHONY: all kmeans gmm clean
 

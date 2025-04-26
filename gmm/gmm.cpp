@@ -75,23 +75,23 @@ vector<Point> load_csv(const string &filename)
     return points;
 }
 
-/* === Gaussian PDF for diagonal Σ === */
-inline double gaussian_pdf_diag(const Point &p,
-                                const GaussianComponent &comp)
+// Compute the probability density of a point for a diagonal Gaussian.
+// Precompute 1/variance to avoid slow divisions.
+inline double gaussian_pdf_diag(const Point &p, const GaussianComponent &comp)
 {
-    const double EPS = 1e-9; // avoid division by zero
-    double exponent = 0.0, denom = 1.0;
+    const double EPS = 1e-9;
+    double exponent = 0.0;
+    double inv_denom = 1.0;
     for (size_t d = 0; d < p.coords.size(); ++d)
     {
-        double var = comp.var[d] + EPS;
+        double inv_var = 1.0 / (comp.var[d] + EPS);
         double diff = p.coords[d] - comp.mean[d];
-        exponent += (diff * diff) / var;
-        denom *= var;
+        exponent += diff * diff * inv_var;
+        inv_denom *= inv_var;
     }
-    if (denom < 1e-300)
-        denom = 1e-300;
-    double norm_const = pow(2.0 * M_PI, -0.5 * p.coords.size()) *
-                        pow(denom, -0.5);
+    if (inv_denom < 1e-300)
+        inv_denom = 1e-300;
+    double norm_const = pow(2.0 * M_PI, -0.5 * p.coords.size()) * sqrt(inv_denom);
     return norm_const * exp(-0.5 * exponent);
 }
 
@@ -112,30 +112,26 @@ void initialize_components(vector<GaussianComponent> &comps,
     }
 }
 
-/* === Expectation Step === */
-double expectation_step(const vector<Point> &points,
-                        const vector<GaussianComponent> &comps,
-                        vector<vector<double>> &resp)
+// Perform the E-step: compute and normalize responsibilities for each point.
+double expectation_step(const vector<Point> &points, const vector<GaussianComponent> &comps, vector<vector<double>> &resp)
 {
-    int n = (int)points.size();
-    int k = (int)comps.size();
+    int n = static_cast<int>(points.size());
+    int k = static_cast<int>(comps.size());
     double log_likelihood = 0.0;
 
-    // PARALLEL CANDIDATE: loop over points
     for (int i = 0; i < n; ++i)
     {
         double denom = 0.0;
         for (int c = 0; c < k; ++c)
         {
-            resp[i][c] = comps[c].weight *
-                         gaussian_pdf_diag(points[i], comps[c]);
+            resp[i][c] = comps[c].weight * gaussian_pdf_diag(points[i], comps[c]);
             denom += resp[i][c];
         }
-        // Normalize γ_ik
         if (denom < 1e-20)
             denom = 1e-20;
+        double inv_denom = 1.0 / denom;
         for (int c = 0; c < k; ++c)
-            resp[i][c] /= denom;
+            resp[i][c] *= inv_denom;
         log_likelihood += log(denom);
     }
     return log_likelihood;
