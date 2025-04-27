@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -16,6 +17,8 @@ using namespace std;
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+double norm_factor = 1.0;
 
 /* ---------------------------- Data -------------------------------- */
 struct Point
@@ -74,18 +77,22 @@ vector<Point> load_csv(const string &f)
     return pts;
 }
 
-/* ---------------------- Gaussian PDF ------------------------------ */
+// Compute the probability density of a point for a diagonal Gaussian.
+// Precompute 1/variance to avoid slow divisions.
 inline double gauss_pdf_diag(const Point &p, const GaussianComponent &g)
 {
     constexpr double EPS = 1e-9;
-    double expn = 0.0, den = 1.0;
+    double expn = 0.0, inv_denom = 1.0;
     for (size_t d = 0; d < p.coords.size(); ++d)
     {
-        double var = g.var[d] + EPS, diff = p.coords[d] - g.mean[d];
-        expn += diff * diff / var;
-        den *= var;
+        double inv_var = 1.0 / (g.var[d] + EPS);
+        double diff = p.coords[d] - g.mean[d];
+        expn += diff * diff * inv_var;
+        inv_denom *= inv_var;
     }
-    double norm = pow(2.0 * M_PI, -0.5 * p.coords.size()) * pow(den, -0.5);
+    if (inv_denom < 1e-300)
+        inv_denom = 1e-300;
+    double norm = norm_factor * sqrt(inv_denom);
     return norm * exp(-0.5 * expn);
 }
 
@@ -102,7 +109,7 @@ void init_comps(vector<GaussianComponent> &comps, const vector<Point> &pts)
     }
 }
 
-/* --------------------- E‑step (parallel) -------------------------- */
+// Perform the E-step: compute and normalize responsibilities for each point.
 double expectation_step(const vector<Point> &pts,
                         const vector<GaussianComponent> &comps,
                         vector<vector<double>> &resp)
@@ -119,8 +126,9 @@ double expectation_step(const vector<Point> &pts,
             denom += resp[i][c];
         }
         denom = max(denom, 1e-20);
+        double inv_denom = 1.0 / denom;
         for (int c = 0; c < k; ++c)
-            resp[i][c] /= denom;
+            resp[i][c] *= inv_denom;
         ll += log(denom);
     }
     return ll;
@@ -233,6 +241,8 @@ int main(int argc, char *argv[])
 
     const vector<Point> master = load_csv(file);
     int n = master.size();
+    int dim = master[0].coords.size();
+    norm_factor = pow(2.0 * M_PI, -0.5 * dim);
 
     const int trials = 50;
     double total_ms = 0.0;
