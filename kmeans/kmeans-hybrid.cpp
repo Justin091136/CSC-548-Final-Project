@@ -484,17 +484,17 @@ int main(int argc, char *argv[])
     double total_time = 0.0;
     vector<double> trial_times;
 
-    for (int r = 0; r < trials; r++)
+    for (int t = 0; t < trials; t++)
     {
         // 1) Reset local data => clear previous cluster assignment
         local_data = original_local_data;
 
         // 2) Randomly initialize centroids (only by rank 0)
         vector<Centroid> centroids(k, Centroid{});
-        srand(42 + r);
+        srand(42 + t);
         if (rank == 0)
         {
-            // srand(42 + r);  // Use different seed for each trial
+            // srand(42 + t);  // Use different seed for each trial
             for (int i = 0; i < k; i++)
             {
                 centroids[i].coords.resize(dims);
@@ -530,7 +530,7 @@ int main(int argc, char *argv[])
         // 4) Optionally gather and print result of this trial
         //    Here we only print trial 0 or the last trial
 
-        if (r == 0)
+        if (t == 0)
         {
             vector<Point> all_pts = gather_results_to_rank0(local_data, total_points, rank, size, MPI_COMM_WORLD);
             if (rank == 0)
@@ -554,7 +554,7 @@ int main(int argc, char *argv[])
     {
         cout << "Average time over " << trials << " runs: "
              << (total_time / trials) << " ms" << endl;
-        save_execution_times(trial_times, "hybrid");
+        save_execution_times(trial_times, "kmeans_hybrid");
     }
 
     MPI_Finalize();

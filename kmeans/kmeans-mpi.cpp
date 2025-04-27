@@ -448,17 +448,17 @@ int main(int argc, char *argv[])
     double total_time = 0.0;
     vector<double> trial_times;
 
-    for (int r = 0; r < trials; r++)
+    for (int t = 0; t < trials; t++)
     {
         // Reset local_data each run
         local_data = original_local_data;
 
         // Initialize centroids
         vector<Centroid> centroids(k);
-        srand(42 + r);
+        srand(42 + t);
         if (rank == 0)
         {
-            // srand(42 + r);
+            // srand(42 + t);
             for (int i = 0; i < k; ++i)
             {
                 int idx = rand() % total_points;
@@ -495,7 +495,7 @@ int main(int argc, char *argv[])
 
         // Gather results on the final trial
         vector<Point> all_points;
-        if (r == 0)
+        if (t == 0)
         {
             all_points = gather_results_to_rank0(local_data, total_points, rank, size, MPI_COMM_WORLD);
         }
@@ -508,8 +508,8 @@ int main(int argc, char *argv[])
         if (rank == 0)
         {
             trial_times.push_back(run_time);
-            // cout << "Run " << r + 1 << " execution time: " << run_time << " ms" << endl;
-            if ((r == 0) && (all_points.size() <= 500))
+            // cout << "Run " << t + 1 << " execution time: " << run_time << " ms" << endl;
+            if ((t == 0) && (all_points.size() <= 500))
             {
                 print_debug_summary(all_points, k);
             }
@@ -520,7 +520,7 @@ int main(int argc, char *argv[])
     {
         cout << "Average time over " << trials << " runs: "
              << (total_time / trials) << " ms" << endl;
-        save_execution_times(trial_times, "mpi");
+        save_execution_times(trial_times, "kmeans_mpi");
     }
 
     MPI_Finalize();

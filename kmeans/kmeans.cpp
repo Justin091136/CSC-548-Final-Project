@@ -331,7 +331,7 @@ int main(int argc, char *argv[])
     cout << "Average time over " << trials << " runs: "
          << (total_time_ms / trials) << " ms" << endl;
 
-    save_execution_times(trial_times, "seq");
+    save_execution_times(trial_times, "kmeans_seq");
 
     return 0;
 }

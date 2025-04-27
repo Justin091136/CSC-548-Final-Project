@@ -18,7 +18,11 @@
 #include <cstdlib>
 #include <limits>
 #include <unistd.h>
+#include <iomanip>
+#include <sys/stat.h>
+#include <sys/types.h>
 
+using namespace std;
 using std::string;
 using std::vector;
 
@@ -244,6 +248,48 @@ void print_debug_global(const vector<Point> &pts,
     }
 }
 
+void create_dir_if_not_exists(const string &dir_path)
+{
+    struct stat info;
+    if (stat(dir_path.c_str(), &info) != 0)
+    {
+        if (mkdir(dir_path.c_str(), 0755) != 0)
+        {
+            cerr << "Error: Failed to create directory: " << dir_path << endl;
+            exit(1);
+        }
+    }
+    else if (!(info.st_mode & S_IFDIR))
+    {
+        cerr << "Error: '" << dir_path << "' exists but is not a directory.\n";
+        exit(1);
+    }
+}
+
+void save_execution_times(const vector<double> &times, const string &version_name)
+{
+    string results_dir = "results";
+    string runtime_csv_dir = results_dir + "/runtime_csv";
+
+    create_dir_if_not_exists(results_dir);
+    create_dir_if_not_exists(runtime_csv_dir);
+
+    string output_file = runtime_csv_dir + "/execution_times_" + version_name + ".csv";
+    ofstream ofs(output_file);
+    if (!ofs.is_open())
+    {
+        cerr << "Error: Failed to open output file: " << output_file << endl;
+        exit(1);
+    }
+
+    ofs << "trial,time_ms\n";
+    for (int i = 0; i < (int)times.size(); ++i)
+    {
+        ofs << (i + 1) << "," << fixed << std::setprecision(4) << times[i] << "\n";
+    }
+    ofs.close();
+}
+
 /* --------------------------- main ------------------------- */
 int main(int argc, char **argv)
 {
@@ -336,11 +382,13 @@ int main(int argc, char **argv)
 
     /* --- prepare OpenMP --- */
     const int trials = 100;
-    double acc_ms = 0.;
+    double acc_ms = 0.0;
+    vector<double> trial_times;
+
     for (int t = 0; t < trials; ++t)
     {
         /* Rank 0 randomly initializes μ/var/π, then broadcasts */
-        srand(42);
+        srand(42 + t);
         vector<double> mu(k * dim), var(k * dim, 1.0), weight(k, 1.0 / k);
         if (rank == 0)
         {
@@ -372,17 +420,22 @@ int main(int argc, char **argv)
         MPI_Barrier(MPI_COMM_WORLD);
         auto t1 = std::chrono::high_resolution_clock::now();
         double local_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        double sum_ms;
-        MPI_Reduce(&local_ms, &sum_ms, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
         if (rank == 0)
-            acc_ms += sum_ms / size;
+        {
+            acc_ms += local_ms;
+            trial_times.push_back(local_ms);
+        }
 
         if (t == 0 && global_n <= 500)
             print_debug_global(local_pts, resp, k, rank, MPI_COMM_WORLD);
     }
     if (rank == 0)
+    {
         std::cout << "Average time over " << trials << " runs: "
                   << acc_ms / trials << " ms\n";
+        save_execution_times(trial_times, "gmm_hybrid");
+    }
 
     MPI_Finalize();
     return 0;

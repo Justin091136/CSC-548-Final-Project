@@ -8,7 +8,10 @@
 #include <string>
 #include <regex>
 #include <limits>
+#include <iomanip>
 #include <chrono>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 using namespace std;
 
@@ -251,6 +254,48 @@ void run_gmm(const vector<Point> &points,
     }
 }
 
+void create_dir_if_not_exists(const string &dir_path)
+{
+    struct stat info;
+    if (stat(dir_path.c_str(), &info) != 0)
+    {
+        if (mkdir(dir_path.c_str(), 0755) != 0)
+        {
+            cerr << "Error: Failed to create directory: " << dir_path << endl;
+            exit(1);
+        }
+    }
+    else if (!(info.st_mode & S_IFDIR))
+    {
+        cerr << "Error: '" << dir_path << "' exists but is not a directory.\n";
+        exit(1);
+    }
+}
+
+void save_execution_times(const vector<double> &times, const string &version_name)
+{
+    string results_dir = "results";
+    string runtime_csv_dir = results_dir + "/runtime_csv";
+
+    create_dir_if_not_exists(results_dir);
+    create_dir_if_not_exists(runtime_csv_dir);
+
+    string output_file = runtime_csv_dir + "/execution_times_" + version_name + ".csv";
+    ofstream ofs(output_file);
+    if (!ofs.is_open())
+    {
+        cerr << "Error: Failed to open output file: " << output_file << endl;
+        exit(1);
+    }
+
+    ofs << "trial,time_ms\n";
+    for (int i = 0; i < (int)times.size(); ++i)
+    {
+        ofs << (i + 1) << "," << fixed << std::setprecision(4) << times[i] << "\n";
+    }
+    ofs.close();
+}
+
 /* ================================================================
  *  main – time only run_gmm(), then print hard‑cluster counts
  * ================================================================ */
@@ -273,6 +318,7 @@ int main(int argc, char *argv[])
 
     const int trials = 100;
     double total_ms = 0.0;
+    vector<double> trial_times;
 
     for (int t = 0; t < trials; ++t)
     {
@@ -283,18 +329,20 @@ int main(int argc, char *argv[])
         vector<vector<double>> resp(n, vector<double>(k));
         vector<GaussianComponent> comps(k);
 
-        // srand(42 + t); // new seed each trial
-        srand(42);
+        srand(42 + t);
 
         auto t0 = chrono::high_resolution_clock::now();
         run_gmm(points, resp, comps); //  ← timed region
         auto t1 = chrono::high_resolution_clock::now();
 
-        total_ms += chrono::duration<double, milli>(t1 - t0).count();
+        double elapsed = chrono::duration<double, milli>(t1 - t0).count();
+        total_ms += elapsed;
+        trial_times.push_back(elapsed);
 
         if (t == 0 && n <= 500)
             print_debug_summary(points, resp, k);
     }
     cout << "Average time over " << trials << " runs: "
          << (total_ms / trials) << " ms\n";
+    save_execution_times(trial_times, "gmm_seq");
 }

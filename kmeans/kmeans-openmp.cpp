@@ -288,7 +288,7 @@ int main(int argc, char *argv[])
     cout << "Average time over " << trials << " runs: " << fixed << setprecision(3)
          << total_time / trials << " ms" << endl;
 
-    save_execution_times(trial_times, "openmp");
+    save_execution_times(trial_times, "kmeans_openmp");
 
     return 0;
 }
