@@ -11,9 +11,12 @@
 #include <limits>
 #include <string>
 #include <regex>
+#include <iomanip>
 #include <chrono>
 #include <iomanip>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 using namespace std;
 
@@ -303,9 +306,6 @@ vector<Point> gather_results_to_rank0(const vector<Point> &local_points, int tot
     return all_points;
 }
 
-// =========================
-// Simple cluster size summary
-// =========================
 void print_debug_summary(const vector<Point> &points, int k)
 {
     vector<int> count(k, 0);
@@ -319,9 +319,49 @@ void print_debug_summary(const vector<Point> &points, int k)
         cout << "Cluster " << i << ": " << count[i] << " points\n";
     }
 }
-// =========================
-// main
-// =========================
+
+void create_dir_if_not_exists(const string &dir_path)
+{
+    struct stat info;
+    if (stat(dir_path.c_str(), &info) != 0)
+    {
+        if (mkdir(dir_path.c_str(), 0755) != 0)
+        {
+            cerr << "Error: Failed to create directory: " << dir_path << endl;
+            exit(1);
+        }
+    }
+    else if (!(info.st_mode & S_IFDIR))
+    {
+        cerr << "Error: '" << dir_path << "' exists but is not a directory.\n";
+        exit(1);
+    }
+}
+
+void save_execution_times(const vector<double> &times, const string &version_name)
+{
+    string results_dir = "results";
+    string runtime_csv_dir = results_dir + "/runtime_csv";
+
+    create_dir_if_not_exists(results_dir);
+    create_dir_if_not_exists(runtime_csv_dir);
+
+    string output_file = runtime_csv_dir + "/execution_times_" + version_name + ".csv";
+    ofstream ofs(output_file);
+    if (!ofs.is_open())
+    {
+        cerr << "Error: Failed to open output file: " << output_file << endl;
+        exit(1);
+    }
+
+    ofs << "trial,time_ms\n";
+    for (int i = 0; i < times.size(); ++i)
+    {
+        ofs << (i + 1) << "," << fixed << setprecision(4) << times[i] << "\n";
+    }
+    ofs.close();
+}
+
 int main(int argc, char *argv[])
 {
     MPI_Init(&argc, &argv);
@@ -442,6 +482,7 @@ int main(int argc, char *argv[])
     // Multiple trials
     const int trials = 100;
     double total_time = 0.0;
+    vector<double> trial_times;
 
     for (int r = 0; r < trials; r++)
     {
@@ -488,17 +529,23 @@ int main(int argc, char *argv[])
 
         // 4) Optionally gather and print result of this trial
         //    Here we only print trial 0 or the last trial
+
         if (r == 0)
         {
             vector<Point> all_pts = gather_results_to_rank0(local_data, total_points, rank, size, MPI_COMM_WORLD);
             if (rank == 0)
             {
+
                 if ((int)all_pts.size() <= 500)
                 {
-                    cout << "[Trial " << r << "]\n";
                     print_debug_summary(all_pts, k);
                 }
             }
+        }
+
+        if (rank == 0)
+        {
+            trial_times.push_back(elapsed_ms);
         }
     }
 
@@ -507,6 +554,7 @@ int main(int argc, char *argv[])
     {
         cout << "Average time over " << trials << " runs: "
              << (total_time / trials) << " ms" << endl;
+        save_execution_times(trial_times, "hybrid");
     }
 
     MPI_Finalize();
