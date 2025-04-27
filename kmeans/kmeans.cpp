@@ -1,3 +1,4 @@
+/* kmeans.cpp: sequential K-means*/
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -12,26 +13,32 @@
 
 using namespace std;
 
-struct Point {
+struct Point
+{
     vector<double> coords;
     int cluster = -1;
 
     Point() : cluster(-1) {}
     Point(int dim) : coords(dim, 0.0), cluster(-1) {}
-    Point(const vector<double>& c) : coords(c), cluster(-1) {}
+    Point(const vector<double> &c) : coords(c), cluster(-1) {}
 };
 
-struct Centroid {
+struct Centroid
+{
     vector<double> coords;
 };
 
 // Extract k from a filename like: data_k3.csv
-int extract_k_from_filename(const string& filename) {
+int extract_k_from_filename(const string &filename)
+{
     smatch match;
     regex pattern("k(\\d+)");
-    if (regex_search(filename, match, pattern)) {
+    if (regex_search(filename, match, pattern))
+    {
         return stoi(match[1]);
-    } else {
+    }
+    else
+    {
         cerr << "Error: Cannot extract k from filename: " << filename << endl;
         exit(1);
     }
@@ -39,9 +46,11 @@ int extract_k_from_filename(const string& filename) {
 
 // Reads a CSV file where each line has one or more comma-separated floating values.
 // All lines must have the same number of columns, which will be the dimension.
-vector<Point> load_csv(const string& filename) {
+vector<Point> load_csv(const string &filename)
+{
     ifstream file(filename);
-    if (!file.is_open()) {
+    if (!file.is_open())
+    {
         cerr << "Error: Failed to open file: " << filename << endl;
         exit(1);
     }
@@ -50,22 +59,29 @@ vector<Point> load_csv(const string& filename) {
     string line;
     int dimension = -1;
 
-    while (getline(file, line)) {
-        if (line.empty()) continue; // skip any empty lines
+    while (getline(file, line))
+    {
+        if (line.empty())
+            continue; // skip any empty lines
         stringstream ss(line);
         string val;
         vector<double> coordsInLine;
 
         // Split line by comma
-        while (getline(ss, val, ',')) {
+        while (getline(ss, val, ','))
+        {
             coordsInLine.push_back(stod(val));
         }
         // Determine dimension if not yet known
-        if (dimension < 0) {
+        if (dimension < 0)
+        {
             dimension = static_cast<int>(coordsInLine.size());
-        } else {
+        }
+        else
+        {
             // Check if each line has consistent number of columns
-            if (static_cast<int>(coordsInLine.size()) != dimension) {
+            if (static_cast<int>(coordsInLine.size()) != dimension)
+            {
                 cerr << "Error: Inconsistent column count in CSV." << endl;
                 exit(1);
             }
@@ -77,10 +93,12 @@ vector<Point> load_csv(const string& filename) {
 }
 
 // Compute the squared distance between a Point and a Centroid
-inline double compute_distance(const Point& p, const Centroid& c) {
+inline double compute_distance(const Point &p, const Centroid &c)
+{
     double dist_sq = 0.0;
     // Assuming p.coords.size() == c.coords.size()
-    for (size_t d = 0; d < p.coords.size(); d++) {
+    for (size_t d = 0; d < p.coords.size(); d++)
+    {
         double diff = p.coords[d] - c.coords[d];
         dist_sq += diff * diff;
     }
@@ -88,13 +106,17 @@ inline double compute_distance(const Point& p, const Centroid& c) {
 }
 
 // Assign each point to the closest centroid
-void assign_clusters(vector<Point>& points, const vector<Centroid>& centroids) {
-    for (auto& p : points) {
+void assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
+{
+    for (auto &p : points)
+    {
         double min_dist = numeric_limits<double>::max();
         int best_cluster = -1;
-        for (int i = 0; i < static_cast<int>(centroids.size()); i++) {
+        for (int i = 0; i < static_cast<int>(centroids.size()); i++)
+        {
             double dist_sq = compute_distance(p, centroids[i]);
-            if (dist_sq < min_dist) {
+            if (dist_sq < min_dist)
+            {
                 min_dist = dist_sq;
                 best_cluster = i;
             }
@@ -104,8 +126,10 @@ void assign_clusters(vector<Point>& points, const vector<Centroid>& centroids) {
 }
 
 // Update centroids based on the points' cluster assignments
-void update_centroids(const vector<Point>& points, vector<Centroid>& centroids, int k) {
-    if (points.empty()) return;
+void update_centroids(const vector<Point> &points, vector<Centroid> &centroids, int k)
+{
+    if (points.empty())
+        return;
     int dim = static_cast<int>(points[0].coords.size());
 
     // sum_coords[c][d] accumulates coordinate sums for cluster c in dimension d
@@ -113,20 +137,26 @@ void update_centroids(const vector<Point>& points, vector<Centroid>& centroids, 
     vector<int> count(k, 0);
 
     // Accumulate sums per cluster
-    for (const auto& p : points) {
+    for (const auto &p : points)
+    {
         int cid = p.cluster;
-        if (cid < 0 || cid >= k) continue; // safety check
-        for (int d = 0; d < dim; d++) {
+        if (cid < 0 || cid >= k)
+            continue; // safety check
+        for (int d = 0; d < dim; d++)
+        {
             sum_coords[cid][d] += p.coords[d];
         }
         count[cid]++;
     }
 
     // Compute the average for each cluster
-    for (int c = 0; c < k; c++) {
+    for (int c = 0; c < k; c++)
+    {
         // If no points are assigned to this cluster, we skip updating
-        if (count[c] > 0) {
-            for (int d = 0; d < dim; d++) {
+        if (count[c] > 0)
+        {
+            for (int d = 0; d < dim; d++)
+            {
                 centroids[c].coords[d] = sum_coords[c][d] / count[c];
             }
         }
@@ -134,16 +164,22 @@ void update_centroids(const vector<Point>& points, vector<Centroid>& centroids, 
 }
 
 // Check if the centroids have converged within a given threshold epsilon (using squared distance)
-bool has_converged(const vector<Centroid>& old_centroids, const vector<Centroid>& new_centroids, double epsilon = 1e-4) {
-    if (old_centroids.size() != new_centroids.size()) return false;
-    for (size_t i = 0; i < old_centroids.size(); i++) {
+bool has_converged(const vector<Centroid> &old_centroids, const vector<Centroid> &new_centroids, double epsilon = 1e-4)
+{
+    if (old_centroids.size() != new_centroids.size())
+        return false;
+    for (size_t i = 0; i < old_centroids.size(); i++)
+    {
         double dist_sq = 0.0;
-        if (old_centroids[i].coords.size() != new_centroids[i].coords.size()) return false;
-        for (size_t d = 0; d < old_centroids[i].coords.size(); d++) {
+        if (old_centroids[i].coords.size() != new_centroids[i].coords.size())
+            return false;
+        for (size_t d = 0; d < old_centroids[i].coords.size(); d++)
+        {
             double diff = old_centroids[i].coords[d] - new_centroids[i].coords[d];
             dist_sq += diff * diff;
         }
-        if (dist_sq > epsilon * epsilon) {
+        if (dist_sq > epsilon * epsilon)
+        {
             return false;
         }
     }
@@ -151,34 +187,41 @@ bool has_converged(const vector<Centroid>& old_centroids, const vector<Centroid>
 }
 
 // Run K-means with maximum iterations
-void run_kmeans(vector<Point>& points, int k, int max_iters = 100) {
-    if (points.empty()) return;
+void run_kmeans(vector<Point> &points, int k, int max_iters = 100)
+{
+    if (points.empty())
+        return;
     int n = static_cast<int>(points.size());
     int dim = static_cast<int>(points[0].coords.size());
 
     // Allocate centroids
     vector<Centroid> centroids(k);
-    for (int c = 0; c < k; c++) {
+    for (int c = 0; c < k; c++)
+    {
         centroids[c].coords.resize(dim, 0.0);
     }
 
     // Initialize centroids by randomly picking points
-    
-    for (int i = 0; i < k; ++i) {
+
+    for (int i = 0; i < k; ++i)
+    {
         int rand_idx = rand() % n;
-        for (int d = 0; d < dim; d++) {
+        for (int d = 0; d < dim; d++)
+        {
             centroids[i].coords[d] = points[rand_idx].coords[d];
         }
     }
 
     // Main loop
-    for (int iter = 0; iter < max_iters; ++iter) {
+    for (int iter = 0; iter < max_iters; ++iter)
+    {
         vector<Centroid> prev_centroids = centroids;
 
         assign_clusters(points, centroids);
         update_centroids(points, centroids, k);
 
-        if (has_converged(prev_centroids, centroids)) {
+        if (has_converged(prev_centroids, centroids))
+        {
             // Uncomment if you want to see the iteration count
             // cout << "Converged after " << iter + 1 << " iterations." << endl;
             break;
@@ -187,21 +230,27 @@ void run_kmeans(vector<Point>& points, int k, int max_iters = 100) {
 }
 
 // Print a summary of how many points ended up in each cluster
-void print_debug_summary(const vector<Point>& points, int k) {
+void print_debug_summary(const vector<Point> &points, int k)
+{
     vector<int> count(k, 0);
-    for (const auto& p : points) {
-        if (p.cluster >= 0 && p.cluster < k) {
+    for (const auto &p : points)
+    {
+        if (p.cluster >= 0 && p.cluster < k)
+        {
             count[p.cluster]++;
         }
     }
     cout << "\n--- Cluster Counts ---" << endl;
-    for (int i = 0; i < k; ++i) {
+    for (int i = 0; i < k; ++i)
+    {
         cout << "Cluster " << i << ": " << count[i] << " points" << endl;
     }
 }
 
-int main(int argc, char* argv[]) {
-    if (argc < 2) {
+int main(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
         cerr << "Usage: ./kmeans <filename>\n";
         return 1;
     }
@@ -209,13 +258,14 @@ int main(int argc, char* argv[]) {
     string filename = argv[1];
     int k = extract_k_from_filename(filename);
 
-    const int trials = 50;
+    const int trials = 100;
     double total_time_ms = 0.0;
 
-    for (int t = 0; t < trials; ++t) {
+    for (int t = 0; t < trials; ++t)
+    {
         vector<Point> points = load_csv(filename);
 
-        srand(42 + t);
+        srand(42 + r);
         auto start = chrono::high_resolution_clock::now();
         run_kmeans(points, k);
         auto end = chrono::high_resolution_clock::now();
@@ -224,12 +274,13 @@ int main(int argc, char* argv[]) {
         total_time_ms += elapsed.count();
 
         // Print summary on the last trial if data size is <= 500
-        if (t == 0 && points.size() <= 500) {
+        if (t == 0 && points.size() <= 500)
+        {
             print_debug_summary(points, k);
         }
     }
 
-    cout << "Average time over " << trials << " runs: " 
+    cout << "Average time over " << trials << " runs: "
          << (total_time_ms / trials) << " ms" << endl;
 
     return 0;

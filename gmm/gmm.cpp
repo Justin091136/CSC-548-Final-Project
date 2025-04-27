@@ -95,7 +95,6 @@ inline double gaussian_pdf_diag(const Point &p, const GaussianComponent &comp)
     return norm_const * exp(-0.5 * exponent);
 }
 
-/* === Initialization: K‑Means++ style (simplified) === */
 void initialize_components(vector<GaussianComponent> &comps,
                            const vector<Point> &points)
 {
@@ -272,7 +271,7 @@ int main(int argc, char *argv[])
     const vector<Point> master_points = load_csv(filename);
     int n = static_cast<int>(master_points.size());
 
-    const int trials = 50;
+    const int trials = 100;
     double total_ms = 0.0;
 
     for (int t = 0; t < trials; ++t)
@@ -284,7 +283,8 @@ int main(int argc, char *argv[])
         vector<vector<double>> resp(n, vector<double>(k));
         vector<GaussianComponent> comps(k);
 
-        srand(42 + t); // new seed each trial
+        // srand(42 + t); // new seed each trial
+        srand(42);
 
         auto t0 = chrono::high_resolution_clock::now();
         run_gmm(points, resp, comps); //  ← timed region

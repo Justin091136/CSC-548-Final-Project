@@ -35,22 +35,14 @@ def generate_all():
     generate_blob(500, 3, 1.0, 2, "data/data_clear_mini_k3.csv")
     generate_blob(10000, 3, 1.0, 2, "data/data_clear_small_k3.csv")
 
-    # medium (OpenMP, correctness)
-    generate_blob(100000, 3, 1.0, 2, "data/data_clear_med_k3.csv")
+    
     generate_blob(100000, 3, 3.0, 2, "data/data_overlap_med_k3.csv")
-    generate_unbalanced(10000, 90000, 0.5, 1.5, "data/data_unbalanced_k5.csv")
-    generate_blob(100000, 50, 1.0, 2, "data/data_highk_k50.csv")
-    generate_blob(100000, 3, 1.0, 10, "data/data_highdim_k3_10d.csv")
-    generate_moons(5000, "data/data_moons.csv")
-    generate_circles(5000, "data/data_circles.csv")
+    generate_blob(100000, 10, 1.0, 2, "data/data_highk_k10.csv")
+    generate_blob(100000, 3, 1.0, 5, "data/data_highdim_k3_5d.csv")
 
     # large scale (for MPI, CUDA, Hybrid)
-    generate_blob(500000, 3, 1.0, 2, "data/data_clear_xlarge_k3.csv")
-    generate_blob(1000000, 3, 1.0, 2, "data/data_clear_xxlarge_k3.csv")
-    generate_moons(50000, "data/data_moons_large.csv")
-    generate_circles(50000, "data/data_circles_large.csv")
-    generate_blob(100000, 50, 1.0, 20, "data/data_highdim_highk.csv")
-    generate_unbalanced(20000, 80000, 0.5, 3.0, "data/data_unbalanced_heavy.csv")
+    generate_blob(500000, 3, 3.0, 2, "data/data_overlap_xlarge_k3.csv")
+    generate_blob(1000000, 3, 3.0, 2, "data/data_overlap_xxlarge_k3.csv")
 
 
 def main():

@@ -244,7 +244,7 @@ int main(int argc, char *argv[])
     int dim = master[0].coords.size();
     norm_factor = pow(2.0 * M_PI, -0.5 * dim);
 
-    const int trials = 50;
+    const int trials = 100;
     double total_ms = 0.0;
     for (int t = 0; t < trials; ++t)
     {
@@ -252,7 +252,7 @@ int main(int argc, char *argv[])
         vector<vector<double>> resp(n, vector<double>(k));
         vector<GaussianComponent> comps(k);
 
-        srand(42 + t);
+        srand(42);
 
         auto t0 = chrono::high_resolution_clock::now();
         run_gmm(pts, resp, comps);

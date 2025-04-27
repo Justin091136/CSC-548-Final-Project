@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <unistd.h>
 
 using std::string;
 using std::vector;
@@ -265,6 +266,17 @@ int main(int argc, char **argv)
         MPI_Finalize();
         return 0;
     }
+
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+
+    /*
+    std::cout << "Rank " << rank << "/" << size
+              << " running on " << hostname
+              << ", PID " << getpid()
+              << std::endl;
+    */
+
     string file = argv[1];
     int k = extract_k(file);
 
@@ -313,12 +325,12 @@ int main(int argc, char **argv)
     }
 
     /* ==== Benchmark ==== */
-    const int trials = 50;
+    const int trials = 100;
     double acc_ms = 0.0;
     for (int t = 0; t < trials; ++t)
     {
         // rank 0 selects random μ/var/weight and broadcasts
-        srand(42 + t);
+        srand(42);
         vector<double> mu(k * dim), var(k * dim, 1.0), weight(k, 1.0 / k);
         if (rank == 0)
         {

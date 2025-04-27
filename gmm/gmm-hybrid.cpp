@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <unistd.h>
 
 using std::string;
 using std::vector;
@@ -251,6 +252,33 @@ int main(int argc, char **argv)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+
+    /*
+
+    #ifdef _OPENMP
+    #pragma omp parallel
+        {
+            int omp_rank = omp_get_thread_num();
+            int omp_size = omp_get_num_threads();
+            if (omp_rank == 0)
+            { // only one thread prints per process
+                std::cout << "Rank " << rank << "/" << size
+                          << " running on " << hostname
+                          << ", PID " << getpid()
+                          << ", OpenMP threads: " << omp_size
+                          << std::endl;
+            }
+        }
+    #else
+        if (rank == 0)
+        {
+            std::cout << "Compiled without OpenMP support." << std::endl;
+        }
+    #endif
+    */
+
     if (argc < 2)
     {
         if (rank == 0)
@@ -307,12 +335,12 @@ int main(int argc, char **argv)
             local_pts[i].coords[d] = local_flat[i * dim + d];
 
     /* --- prepare OpenMP --- */
-    const int trials = 50;
+    const int trials = 100;
     double acc_ms = 0.;
     for (int t = 0; t < trials; ++t)
     {
         /* Rank 0 randomly initializes μ/var/π, then broadcasts */
-        srand(42 + t);
+        srand(42);
         vector<double> mu(k * dim), var(k * dim, 1.0), weight(k, 1.0 / k);
         if (rank == 0)
         {
