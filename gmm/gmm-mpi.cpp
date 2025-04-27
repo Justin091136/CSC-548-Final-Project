@@ -24,6 +24,8 @@ using std::vector;
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+double norm_factor = 1.0;
 constexpr double EPS = 1e-9;
 
 /* -------------------- data structures -------------------- */
@@ -87,34 +89,35 @@ vector<Point> load_csv(const string &fn)
     return pts;
 }
 
-/* ---------------- Gaussian PDF with diagonal covariance ------------------ */
+// Compute the probability density of a point for a diagonal Gaussian.
+// Precompute 1/variance to avoid slow divisions.
 inline double gaussian_pdf_diag(const Point &p, const Gaussian &g)
 {
-    double e = 0., den = 1.;
+    double e = 0.0, inv_denom = 1.0;
     for (size_t d = 0; d < p.coords.size(); ++d)
     {
         double var = g.var[d] + EPS;
+        double inv_var = 1.0 / var;
         double diff = p.coords[d] - g.mean[d];
-        e += diff * diff / var;
-        den *= var;
+        e += diff * diff * inv_var;
+        inv_denom *= inv_var;
     }
-    if (den < 1e-300)
-        den = 1e-300;
-    double norm = std::pow(2. * M_PI, -0.5 * p.coords.size()) *
-                  std::pow(den, -0.5);
+    if (inv_denom < 1e-300)
+        inv_denom = 1e-300;
+    double norm = norm_factor * std::sqrt(inv_denom);
     return norm * std::exp(-0.5 * e);
 }
 
-/* -------------------- E-step ----------------------------- */
+// Perform the E-step: compute and normalize responsibilities for each point.
 double expectation_step(const vector<Point> &pts,
                         const vector<Gaussian> &comps,
                         vector<vector<double>> &resp)
 {
     int n = pts.size(), k = comps.size();
-    double ll = 0.;
+    double ll = 0.0;
     for (int i = 0; i < n; ++i)
     {
-        double denom = 0.;
+        double denom = 0.0;
         for (int c = 0; c < k; ++c)
         {
             resp[i][c] = comps[c].weight * gaussian_pdf_diag(pts[i], comps[c]);
@@ -122,9 +125,10 @@ double expectation_step(const vector<Point> &pts,
         }
         if (denom < 1e-20)
             denom = 1e-20;
+        double inv_denom = 1.0 / denom; // new
         for (int c = 0; c < k; ++c)
         {
-            resp[i][c] /= denom;
+            resp[i][c] *= inv_denom; // changed to multiply
         }
         ll += std::log(denom);
     }
@@ -281,6 +285,8 @@ int main(int argc, char **argv)
     }
     MPI_Bcast(&dim, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&global_n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    norm_factor = std::pow(2.0 * M_PI, -0.5 * dim);
 
     // distribute data with Scatterv
     vector<int> cnt(size), disp(size);
