@@ -29,20 +29,16 @@ def generate_unbalanced(n1, n2, std1, std2, out):
 
 def generate_all():
     os.makedirs("data", exist_ok=True)
-    # small/debug
     generate_blob(100, 5, 0.6, 2, "data/data_debug_k5.csv")
     generate_blob(100, 5, 0.6, 3, "data/data_highdim_k5.csv")
     generate_blob(500, 3, 1.0, 2, "data/data_clear_mini_k3.csv")
     generate_blob(10000, 3, 1.0, 2, "data/data_clear_small_k3.csv")
 
-    
-    generate_blob(100000, 3, 3.0, 2, "data/data_overlap_med_k3.csv")
-    generate_blob(100000, 10, 1.0, 2, "data/data_highk_k10.csv")
-    generate_blob(100000, 3, 1.0, 5, "data/data_highdim_k3_5d.csv")
+    data_size = 250000
+    generate_blob(data_size, 3, 3.0, 2, "data/data_overlap_med_k3.csv")
+    generate_blob(data_size, 10, 1.0, 2, "data/data_highk_k10.csv")
+    generate_blob(data_size, 3, 1.0, 5, "data/data_highdim_k3_5d.csv")
 
-    # large scale (for MPI, CUDA, Hybrid)
-    generate_blob(500000, 3, 3.0, 2, "data/data_overlap_xlarge_k3.csv")
-    generate_blob(1000000, 3, 3.0, 2, "data/data_overlap_xxlarge_k3.csv")
 
 
 def main():

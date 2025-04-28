@@ -210,7 +210,7 @@ void run_gmm_mpi(const vector<Point> &pts,
                  vector<Gaussian> &comps,
                  vector<vector<double>> &resp,
                  MPI_Comm comm,
-                 int max_it = 100, double tol = 1e-4)
+                 int max_it = 200, double tol = 1e-4)
 {
     double prev_ll = -std::numeric_limits<double>::infinity();
     for (int it = 0; it < max_it; ++it)
@@ -266,26 +266,43 @@ void create_dir_if_not_exists(const string &dir_path)
     }
 }
 
-void save_execution_times(const vector<double> &times, const string &version_name)
+string get_clean_test_name(const string &filename)
+{
+    // Remove path
+    size_t last_slash = filename.find_last_of("/\\");
+    string base = (last_slash == string::npos) ? filename : filename.substr(last_slash + 1);
+
+    // Remove .csv
+    size_t dot_pos = base.rfind('.');
+    if (dot_pos != string::npos)
+    {
+        base = base.substr(0, dot_pos);
+    }
+    return base;
+}
+
+void save_execution_times(const vector<double> &times, const string &test_name, const string &version_name)
 {
     string results_dir = "results";
     string runtime_csv_dir = results_dir + "/runtime_csv";
+    string test_dir = runtime_csv_dir + "/" + test_name;
 
     create_dir_if_not_exists(results_dir);
     create_dir_if_not_exists(runtime_csv_dir);
+    create_dir_if_not_exists(test_dir);
 
-    string output_file = runtime_csv_dir + "/execution_times_" + version_name + ".csv";
-    ofstream ofs(output_file);
+    string output_file = test_dir + "/execution_times_" + version_name + ".csv";
+    std::ofstream ofs(output_file);
     if (!ofs.is_open())
     {
-        cerr << "Error: Failed to open output file: " << output_file << endl;
+        std::cerr << "Error: Failed to open output file: " << output_file << std::endl;
         exit(1);
     }
 
     ofs << "trial,time_ms\n";
     for (int i = 0; i < (int)times.size(); ++i)
     {
-        ofs << (i + 1) << "," << fixed << std::setprecision(4) << times[i] << "\n";
+        ofs << (i + 1) << "," << std::fixed << std::setprecision(3) << times[i] << "\n";
     }
     ofs.close();
 }
@@ -332,15 +349,15 @@ int main(int argc, char **argv)
         MPI_Finalize();
         return 0;
     }
-    string file = argv[1];
-    int k = extract_k(file);
+    string filename = argv[1];
+    int k = extract_k(filename);
 
     /* Read file on rank 0 */
     vector<double> flat_all;
     int global_n = 0, dim = 0;
     if (rank == 0)
     {
-        auto full = load_csv(file);
+        auto full = load_csv(filename);
         global_n = full.size();
         dim = full[0].coords.size();
         flat_all.resize(global_n * dim);
@@ -434,7 +451,8 @@ int main(int argc, char **argv)
     {
         std::cout << "Average time over " << trials << " runs: "
                   << acc_ms / trials << " ms\n";
-        save_execution_times(trial_times, "gmm_hybrid");
+        string test_name = get_clean_test_name(filename);
+        save_execution_times(trial_times, test_name, "gmm_hybrid");
     }
 
     MPI_Finalize();
