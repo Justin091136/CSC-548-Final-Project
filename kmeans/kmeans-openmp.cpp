@@ -82,11 +82,14 @@ inline double compute_distance(const Point &p, const Centroid &c)
     return sum;
 }
 
-void assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
+int assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
 {
-#pragma omp parallel for
+    int changed = 0;
+#pragma omp parallel for reduction(+ : changed)
     for (int i = 0; i < points.size(); ++i)
     {
+        int old_cluster = points[i].cluster;
+
         double min_dist = numeric_limits<double>::max();
         int best_cluster = -1;
         for (int j = 0; j < centroids.size(); ++j)
@@ -98,8 +101,13 @@ void assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
                 best_cluster = j;
             }
         }
+
+        if (best_cluster != old_cluster)
+            changed++;
+
         points[i].cluster = best_cluster;
     }
+    return changed;
 }
 
 void update_centroids(vector<Point> &points, vector<Centroid> &centroids, int k)
@@ -107,36 +115,18 @@ void update_centroids(vector<Point> &points, vector<Centroid> &centroids, int k)
     int n = points.size();
     int dim = points[0].coords.size();
 
-    vector<vector<double>> sum_coords(k, vector<double>(dim, 0.0));
-    vector<int> count(k, 0);
+    double *sum_coords = new double[k * dim]();
+    int *count = new int[k]();
 
-#pragma omp parallel
+#pragma omp parallel for reduction(+ : sum_coords[ : k * dim], count[ : k])
+    for (int i = 0; i < n; ++i)
     {
-        vector<vector<double>> local_sum(k, vector<double>(dim, 0.0));
-        vector<int> local_count(k, 0);
-
-#pragma omp for nowait
-        for (int i = 0; i < n; ++i)
+        int cid = points[i].cluster;
+        for (int d = 0; d < dim; ++d)
         {
-            int cid = points[i].cluster;
-            for (int d = 0; d < dim; ++d)
-            {
-                local_sum[cid][d] += points[i].coords[d];
-            }
-            local_count[cid]++;
+            sum_coords[cid * dim + d] += points[i].coords[d];
         }
-
-#pragma omp critical
-        {
-            for (int c = 0; c < k; ++c)
-            {
-                for (int d = 0; d < dim; ++d)
-                {
-                    sum_coords[c][d] += local_sum[c][d];
-                }
-                count[c] += local_count[c];
-            }
-        }
+        count[cid]++;
     }
 
     for (int c = 0; c < k; ++c)
@@ -145,12 +135,17 @@ void update_centroids(vector<Point> &points, vector<Centroid> &centroids, int k)
         {
             for (int d = 0; d < dim; ++d)
             {
-                centroids[c].coords[d] = sum_coords[c][d] / count[c];
+                centroids[c].coords[d] = sum_coords[c * dim + d] / count[c];
             }
         }
     }
+
+    delete[] sum_coords;
+    delete[] count;
 }
 
+/*
+// Obsolete
 bool has_converged(const vector<Centroid> &old_centroids, const vector<Centroid> &new_centroids, double epsilon = 1e-4)
 {
     for (int i = 0; i < old_centroids.size(); ++i)
@@ -162,6 +157,7 @@ bool has_converged(const vector<Centroid> &old_centroids, const vector<Centroid>
     }
     return true;
 }
+*/
 
 void run_kmeans(vector<Point> &points, int k, int max_iters = 200)
 {
@@ -169,7 +165,6 @@ void run_kmeans(vector<Point> &points, int k, int max_iters = 200)
     int dim = points[0].coords.size();
     vector<Centroid> centroids(k, Centroid{vector<double>(dim, 0.0)});
 
-    //  Random initialization
     for (int i = 0; i < k; ++i)
     {
         int rand_idx = rand() % n;
@@ -178,19 +173,11 @@ void run_kmeans(vector<Point> &points, int k, int max_iters = 200)
 
     for (int iter = 0; iter < max_iters; ++iter)
     {
-        vector<Centroid> prev_centroids = centroids;
-
-        assign_clusters(points, centroids);
+        int changed = assign_clusters(points, centroids);
         update_centroids(points, centroids, k);
 
-        if (has_converged(prev_centroids, centroids))
-        {
+        if (changed == 0)
             break;
-        }
-        if (iter == max_iters - 1)
-        {
-            ;
-        }
     }
 }
 
