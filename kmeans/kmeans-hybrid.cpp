@@ -108,36 +108,39 @@ inline double compute_distance(const Point &p, const Centroid &c)
 // =========================
 // Assign clusters (parallel with OpenMP)
 // =========================
-void assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
+int assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
 {
-#pragma omp parallel for
+    int changed = 0;
+#pragma omp parallel for reduction(+ : changed) schedule(static)
     for (int i = 0; i < (int)points.size(); ++i)
     {
-        double min_dist = numeric_limits<double>::max();
-        int best_cluster = -1;
-        for (int j = 0; j < (int)centroids.size(); ++j)
+        int old = points[i].cluster;
+        int best = 0;
+        double best_d = compute_distance(points[i], centroids[0]);
+        for (int c = 1; c < (int)centroids.size(); ++c)
         {
-            double dist = compute_distance(points[i], centroids[j]);
-            if (dist < min_dist)
+            double d = compute_distance(points[i], centroids[c]);
+            if (d < best_d)
             {
-                min_dist = dist;
-                best_cluster = j;
+                best_d = d;
+                best = c;
             }
         }
-        points[i].cluster = best_cluster;
+        if (best != old)
+            ++changed;
+        points[i].cluster = best;
     }
+    return changed;
 }
 
 // =========================
 // Update centroids (MPI + OpenMP)
 // =========================
-void update_centroids(const vector<Point> &points, vector<Centroid> &centroids, int k, MPI_Comm comm)
+double update_centroids(const vector<Point> &points, vector<Centroid> &centroids, int k, MPI_Comm comm, int local_changed)
 {
-    // local_combined[c*(dims+1) + d] => sum for dimension d of cluster c
-    // local_combined[c*(dims+1) + dims] => count of cluster c
-    vector<double> local_combined(k * (dims + 1), 0.0);
+    const int slot = k * (dims + 1); // final slot for changed
+    vector<double> local_combined(k * (dims + 1) + 1, 0.0);
 
-// ===== OpenMP thread-local accumulation =====
 #pragma omp parallel
     {
         vector<double> thread_combined(k * (dims + 1), 0.0);
@@ -148,7 +151,6 @@ void update_centroids(const vector<Point> &points, vector<Centroid> &centroids, 
             int cid = points[i].cluster;
             if (cid < 0 || cid >= k)
                 continue;
-
             int offset = cid * (dims + 1);
             for (int d = 0; d < dims; ++d)
             {
@@ -171,24 +173,28 @@ void update_centroids(const vector<Point> &points, vector<Centroid> &centroids, 
         }
     }
 
-    // ===== MPI Allreduce (only once) =====
-    vector<double> global_combined(k * (dims + 1), 0.0);
-    MPI_Allreduce(local_combined.data(), global_combined.data(), k * (dims + 1), MPI_DOUBLE, MPI_SUM, comm);
+    // Put local_changed into the last slot
+    local_combined.back() = static_cast<double>(local_changed);
 
-    // ===== Update centroids =====
+    // MPI Allreduce including changed
+    MPI_Allreduce(MPI_IN_PLACE, local_combined.data(), slot + 1, MPI_DOUBLE, MPI_SUM, comm);
+
+    // Update centroids
     for (int c = 0; c < k; ++c)
     {
         int offset = c * (dims + 1);
-        double count = global_combined[offset + dims];
+        double count = local_combined[offset + dims];
         if (count > 0)
         {
             centroids[c].coords.resize(dims);
             for (int d = 0; d < dims; ++d)
             {
-                centroids[c].coords[d] = global_combined[offset + d] / count;
+                centroids[c].coords[d] = local_combined[offset + d] / count;
             }
         }
     }
+
+    return local_combined.back(); // Return global_changed
 }
 
 // =========================
@@ -221,17 +227,11 @@ void run_kmeans(vector<Point> &local_points, vector<Centroid> &centroids, int k,
     MPI_Comm_rank(comm, &rank);
     for (int iter = 0; iter < max_iter; iter++)
     {
-        vector<Centroid> old_c = centroids;
+        int local_changed = assign_clusters(local_points, centroids);
 
-        assign_clusters(local_points, centroids);
-        update_centroids(local_points, centroids, k, comm);
+        double global_changed = update_centroids(local_points, centroids, k, comm, local_changed);
 
-        bool local_ok = has_converged(old_c, centroids);
-        int local_val = local_ok ? 1 : 0;
-        int global_ok = 0;
-        MPI_Allreduce(&local_val, &global_ok, 1, MPI_INT, MPI_LAND, comm);
-
-        if (global_ok)
+        if (global_changed == 0.0)
         {
             break;
         }
