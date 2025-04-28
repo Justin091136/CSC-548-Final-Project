@@ -95,10 +95,12 @@ inline double compute_distance(const Point &p, const Centroid &c)
 }
 
 // Assign each point to the nearest centroid
-void assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
+int assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
 {
+    int changed = 0;
     for (auto &p : points)
     {
+        int old_cluster = p.cluster;
         double min_dist = numeric_limits<double>::max();
         int best_cluster = -1;
         for (int i = 0; i < (int)centroids.size(); ++i)
@@ -110,56 +112,58 @@ void assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
                 best_cluster = i;
             }
         }
+        if (best_cluster != old_cluster)
+        {
+            changed++;
+        }
         p.cluster = best_cluster;
     }
+    return changed;
 }
 
 // Update centroids by averaging all points assigned to each cluster
-void update_centroids(const vector<Point> &points, vector<Centroid> &centroids, int k, MPI_Comm comm)
+double update_centroids(const vector<Point> &points, vector<Centroid> &centroids, int k, MPI_Comm comm, int local_changed)
 {
-    // local_combined stores both coordinate sums and the count for each cluster:
-    // For cluster c, the segment c*(dims+1)...c*(dims+1)+(dims-1) is used for coordinate sums,
-    // and the position c*(dims+1)+dims holds the count of points in that cluster.
-    vector<double> local_combined(k * (dims + 1), 0.0);
-    vector<double> global_combined(k * (dims + 1), 0.0);
+    // Allocate local_combined with an extra slot for local_changed
+    vector<double> local_combined(k * (dims + 1) + 1, 0.0);
 
-    // 1) Accumulate local sums and counts
+    // Accumulate local sums and counts
     for (const auto &p : points)
     {
         int cid = p.cluster;
-        // If there's a possibility that cid can be -1 or invalid, check here:
-        // if (cid < 0 || cid >= k) continue;
-
-        // Add up coordinates
         for (int d = 0; d < dims; d++)
         {
             local_combined[cid * (dims + 1) + d] += p.coords[d];
         }
-        // Increment the count (the last slot of each cluster block)
         local_combined[cid * (dims + 1) + dims] += 1.0;
     }
 
-    // 2) Perform a single Allreduce to combine both sums and counts
-    MPI_Allreduce(local_combined.data(),
-                  global_combined.data(),
-                  k * (dims + 1),
+    // Store local_changed in the last slot
+    local_combined.back() = static_cast<double>(local_changed);
+
+    // Perform in-place Allreduce including changed count
+    MPI_Allreduce(MPI_IN_PLACE,
+                  local_combined.data(),
+                  k * (dims + 1) + 1,
                   MPI_DOUBLE,
                   MPI_SUM,
                   comm);
 
-    // 3) Recompute the centroid positions using the global sums and counts
+    // Update centroid positions
     for (int i = 0; i < k; ++i)
     {
-        double count = global_combined[i * (dims + 1) + dims];
+        double count = local_combined[i * (dims + 1) + dims];
         if (count > 0)
         {
             for (int d = 0; d < dims; d++)
             {
-                centroids[i].coords[d] =
-                    global_combined[i * (dims + 1) + d] / count;
+                centroids[i].coords[d] = local_combined[i * (dims + 1) + d] / count;
             }
         }
     }
+
+    // Return global changed sum
+    return local_combined.back();
 }
 
 // Check if centroids have converged
@@ -256,23 +260,17 @@ void run_kmeans(vector<Point> &local_points, vector<Centroid> &centroids, int k,
 
     for (int iter = 0; iter < max_iters; ++iter)
     {
-        vector<Centroid> prev_centroids = centroids;
+        // Assign points to nearest centroids and count how many points changed clusters
+        int local_changed = assign_clusters(local_points, centroids);
 
-        assign_clusters(local_points, centroids);
-        update_centroids(local_points, centroids, k, comm);
+        // Update centroids and retrieve the global changed sum
+        double changed_sum = update_centroids(local_points, centroids, k, comm, local_changed);
 
-        bool local_converged = has_converged(prev_centroids, centroids);
-        int global_converged = 0;
-        int local_value = local_converged ? 1 : 0;
-
-        // Check if all processes see convergence
-        MPI_Allreduce(&local_value, &global_converged, 1, MPI_INT, MPI_LAND, comm);
-
-        if (global_converged)
+        // If no points changed globally, convergence is reached
+        if (changed_sum == 0.0)
         {
             if (rank == 0)
             {
-                ;
                 // cout << "Converged after " << iter + 1 << " iterations." << endl;
             }
             break;
