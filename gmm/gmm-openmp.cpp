@@ -1,3 +1,4 @@
+/* OpenMp version of GMM */
 #include <algorithm>
 #include <iostream>
 #include <fstream>
@@ -84,17 +85,20 @@ vector<Point> load_csv(const string &f)
 // Precompute 1/variance to avoid slow divisions.
 inline double gauss_pdf_diag(const Point &p, const GaussianComponent &g)
 {
-    constexpr double EPS = 1e-9;
+    // After maximization_step(), g.var[d] already stores inv_var (1/σ²)
     double expn = 0.0, inv_denom = 1.0;
+
     for (size_t d = 0; d < p.coords.size(); ++d)
     {
-        double inv_var = 1.0 / (g.var[d] + EPS);
+        double inv_var = g.var[d];
         double diff = p.coords[d] - g.mean[d];
         expn += diff * diff * inv_var;
         inv_denom *= inv_var;
     }
+
     if (inv_denom < 1e-300)
         inv_denom = 1e-300;
+
     double norm = norm_factor * sqrt(inv_denom);
     return norm * exp(-0.5 * expn);
 }
@@ -154,7 +158,7 @@ void maximization_step(const vector<Point> &pts,
     double *mean_a = sum_mean.data();
     double *var_a = sum_var.data();
 
-/* pass‑1 : Nk & mean numerator */
+/* pass‑1 : accumulate Nk and mean numerators */
 #pragma omp parallel for reduction(+ : Nk_a[ : k], mean_a[ : k * dim]) schedule(static)
     for (int i = 0; i < n; ++i)
     {
@@ -167,11 +171,13 @@ void maximization_step(const vector<Point> &pts,
                 mean_a[c * dim + d] += g * pc[d];
         }
     }
+
+    // Update means
     for (int c = 0; c < k; ++c)
         for (int d = 0; d < dim; ++d)
             comps[c].mean[d] = mean_a[c * dim + d] / (Nk_a[c] + EPS);
 
-/* pass‑2 : variance numerator */
+/* pass‑2 : accumulate variance numerators */
 #pragma omp parallel for reduction(+ : var_a[ : k * dim]) schedule(static)
     for (int i = 0; i < n; ++i)
     {
@@ -186,12 +192,27 @@ void maximization_step(const vector<Point> &pts,
             }
         }
     }
+
+    // Update variances and weights
     for (int c = 0; c < k; ++c)
     {
         comps[c].weight = Nk_a[c] / n;
         for (int d = 0; d < dim; ++d)
             comps[c].var[d] = var_a[c * dim + d] / (Nk_a[c] + EPS) + EPS;
     }
+
+    // Make sure all component weights add up to 1.0,
+    // so the model remains a valid probability distribution.
+    double sum_w = 0.0;
+    for (int c = 0; c < k; ++c)
+        sum_w += comps[c].weight;
+    for (int c = 0; c < k; ++c)
+        comps[c].weight /= sum_w;
+
+    // Precompute inv_var = 1/σ² after updating variance
+    for (int c = 0; c < k; ++c)
+        for (int d = 0; d < dim; ++d)
+            comps[c].var[d] = 1.0 / comps[c].var[d];
 }
 
 /* --------------------- EM driver --------------------------------- */

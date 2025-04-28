@@ -19,6 +19,8 @@ using namespace std;
 #define M_PI 3.14159265358979323846
 #endif
 
+double norm_factor = 1.0;
+
 /* ---------- Data Structures ---------- */
 struct Point
 {
@@ -80,22 +82,24 @@ vector<Point> load_csv(const string &filename)
 
 // Compute the probability density of a point for a diagonal Gaussian.
 // Precompute 1/variance to avoid slow divisions.
-inline double gaussian_pdf_diag(const Point &p, const GaussianComponent &comp)
+inline double gaussian_pdf_diag(const Point &p, const GaussianComponent &g)
 {
-    const double EPS = 1e-9;
-    double exponent = 0.0;
-    double inv_denom = 1.0;
+    // After maximization_step(), g.var[d] already stores inv_var (1/σ²)
+    double expn = 0.0, inv_denom = 1.0;
+
     for (size_t d = 0; d < p.coords.size(); ++d)
     {
-        double inv_var = 1.0 / (comp.var[d] + EPS);
-        double diff = p.coords[d] - comp.mean[d];
-        exponent += diff * diff * inv_var;
+        double inv_var = g.var[d];
+        double diff = p.coords[d] - g.mean[d];
+        expn += diff * diff * inv_var;
         inv_denom *= inv_var;
     }
+
     if (inv_denom < 1e-300)
         inv_denom = 1e-300;
-    double norm_const = pow(2.0 * M_PI, -0.5 * p.coords.size()) * sqrt(inv_denom);
-    return norm_const * exp(-0.5 * exponent);
+
+    double norm = norm_factor * sqrt(inv_denom);
+    return norm * exp(-0.5 * expn);
 }
 
 void initialize_components(vector<GaussianComponent> &comps,
@@ -198,6 +202,19 @@ void maximization_step(const vector<Point> &points,
             comps[c].var[d] = sum_var[c][d] / (Nk[c] + EPS) + EPS;
         }
     }
+
+    // Make sure all component weights add up to 1.0,
+    // so the model remains a valid probability distribution.
+    double sum_w = 0.0;
+    for (int c = 0; c < k; ++c)
+        sum_w += comps[c].weight;
+    for (int c = 0; c < k; ++c)
+        comps[c].weight /= sum_w;
+
+    // Precompute inv_var = 1/σ² after updating variance
+    for (int c = 0; c < k; ++c)
+        for (int d = 0; d < dim; ++d)
+            comps[c].var[d] = 1.0 / comps[c].var[d];
 }
 
 void print_debug_summary(const vector<Point> &points, const vector<vector<double>> &resp, int k)
@@ -332,6 +349,8 @@ int main(int argc, char *argv[])
     /* ---- load data only once ---- */
     const vector<Point> master_points = load_csv(filename);
     int n = static_cast<int>(master_points.size());
+    int dim = master_points[0].coords.size();
+    norm_factor = pow(2.0 * M_PI, -0.5 * dim);
 
     const int trials = 100;
     double total_ms = 0.0;

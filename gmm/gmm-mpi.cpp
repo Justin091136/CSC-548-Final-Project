@@ -206,6 +206,14 @@ void maximization_step(const vector<Point> &pts,
             comps[c].var[d] = sum_var[c * dim + d] / (Nk[c] + EPS) + EPS;
         }
     }
+
+    // Make sure all component weights add up to 1.0,
+    // so the model remains a valid probability distribution.
+    double sum_w = 0.0;
+    for (int c = 0; c < k; ++c)
+        sum_w += comps[c].weight;
+    for (int c = 0; c < k; ++c)
+        comps[c].weight /= sum_w;
 }
 
 /* ------------------- EM driver --------------------------- */
