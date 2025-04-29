@@ -8,6 +8,16 @@ This project implements parallel versions of the K-Means and Gaussian Mixture Mo
 The goal is to accelerate clustering on large datasets by leveraging shared-memory and distributed-memory parallelism.  
 Both algorithms were tested on synthetic datasets with different cluster counts and dimensions to evaluate runtime, speedup, and efficiency across different parallelization strategies.
 
+## Installation Requirements
+
+- C++ compiler with C++11 support (e.g., GCC, LLVM/Clang)
+- OpenMP support
+- MPI library (e.g., OpenMPI or MPICH)
+- Make utility
+
+On Linux, these can be installed via your package manager.  
+On macOS, install LLVM, libomp, and OpenMPI using Homebrew.
+
 ## Building
 
 To build all binaries, simply run:
