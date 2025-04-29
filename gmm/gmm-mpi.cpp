@@ -324,6 +324,7 @@ void save_execution_times(const vector<double> &times, const string &test_name, 
 }
 
 /* --------------------------- main ------------------------- */
+bool save_result = false;
 int main(int argc, char **argv)
 {
     MPI_Init(&argc, &argv);
@@ -454,8 +455,11 @@ int main(int argc, char **argv)
         std::cout << "Average time over " << trials << " runs: "
                   << acc_ms / trials << " ms\n";
 
-        string test_name = get_clean_test_name(filename);
-        save_execution_times(trial_times, test_name, "gmm_mpi");
+        if (save_result)
+        {
+            string test_name = get_clean_test_name(filename);
+            save_execution_times(trial_times, test_name, "gmm_mpi");
+        }
     }
 
     MPI_Finalize();

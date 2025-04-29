@@ -358,6 +358,7 @@ void save_execution_times(const vector<double> &times, const string &test_name, 
     ofs.close();
 }
 
+bool save_result = false;
 int main(int argc, char *argv[])
 {
     MPI_Init(&argc, &argv);
@@ -378,7 +379,6 @@ int main(int argc, char *argv[])
     gethostname(hostname, sizeof(hostname));
 
     /*
-
     cout << "Rank " << rank << "/" << size
          << " running on " << hostname
          << ", PID " << getpid()
@@ -535,8 +535,12 @@ int main(int argc, char *argv[])
     {
         cout << "Average time over " << trials << " runs: "
              << (total_time / trials) << " ms" << endl;
-        string test_name = get_clean_test_name(filename);
-        save_execution_times(trial_times, test_name, "kmeans_mpi");
+
+        if (save_result)
+        {
+            string test_name = get_clean_test_name(filename);
+            save_execution_times(trial_times, test_name, "kmeans_mpi");
+        }
     }
 
     MPI_Finalize();

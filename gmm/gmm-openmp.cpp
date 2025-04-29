@@ -311,6 +311,7 @@ void save_execution_times(const vector<double> &times, const string &test_name, 
 }
 
 /* --------------------- main -------------------------------------- */
+bool save_result = false;
 int main(int argc, char *argv[])
 {
     ios::sync_with_stdio(false);
@@ -351,7 +352,12 @@ int main(int argc, char *argv[])
             print_debug(pts, resp, k);
     }
     cout << "Average time over " << trials << " runs: " << total_ms / trials << " ms\n";
-    string test_name = get_clean_test_name(filename);
-    save_execution_times(trial_times, test_name, "gmm_openmp");
+
+    if (save_result)
+    {
+        string test_name = get_clean_test_name(filename);
+        save_execution_times(trial_times, test_name, "gmm_openmp");
+    }
+
     return 0;
 }

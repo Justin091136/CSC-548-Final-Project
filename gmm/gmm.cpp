@@ -333,6 +333,7 @@ void save_execution_times(const vector<double> &times, const string &test_name, 
 /* ================================================================
  *  main – time only run_gmm(), then print hard‑cluster counts
  * ================================================================ */
+bool save_result = false;
 int main(int argc, char *argv[])
 {
     ios::sync_with_stdio(false);
@@ -380,7 +381,12 @@ int main(int argc, char *argv[])
     }
     cout << "Average time over " << trials << " runs: "
          << (total_ms / trials) << " ms\n";
-    string test_name = get_clean_test_name(filename);
-    save_execution_times(trial_times, test_name, "gmm_seq");
+
+    if (save_result)
+    {
+        string test_name = get_clean_test_name(filename);
+        save_execution_times(trial_times, test_name, "gmm_seq");
+    }
+
     return 0;
 }
