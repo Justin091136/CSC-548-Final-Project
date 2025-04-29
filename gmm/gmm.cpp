@@ -21,7 +21,6 @@ using namespace std;
 
 double norm_factor = 1.0;
 
-/* ---------- Data Structures ---------- */
 struct Point
 {
     vector<double> coords;
@@ -32,12 +31,11 @@ struct Point
 
 struct GaussianComponent
 {
-    vector<double> mean; // μ_k
-    vector<double> var;  // σ_k^2  (diagonal covariance)
-    double weight = 1.0; // π_k
+    vector<double> mean;
+    vector<double> var;
+    double weight = 1.0;
 };
 
-/* ---------- Utility (unchanged) ---------- */
 int extract_k_from_filename(const string &filename)
 {
     smatch match;
@@ -143,7 +141,6 @@ double expectation_step(const vector<Point> &points, const vector<GaussianCompon
     return log_likelihood;
 }
 
-/* === Maximization Step === */
 void maximization_step(const vector<Point> &points,
                        vector<GaussianComponent> &comps,
                        const vector<vector<double>> &resp)
@@ -242,13 +239,6 @@ void print_debug_summary(const vector<Point> &points, const vector<vector<double
     }
 }
 
-/* === EM Driver === */
-/* ================================================================
- *  GMM driver — uses pre‑allocated responsibility matrix (resp)
- *  points : input samples            (size n)
- *  resp   : n × k responsibility     (modified in‑place)
- *  comps  : Gaussian components      (modified in‑place)
- * ================================================================ */
 void run_gmm(const vector<Point> &points,
              vector<vector<double>> &resp,
              vector<GaussianComponent> &comps,
@@ -330,9 +320,6 @@ void save_execution_times(const vector<double> &times, const string &test_name, 
     ofs.close();
 }
 
-/* ================================================================
- *  main – time only run_gmm(), then print hard‑cluster counts
- * ================================================================ */
 bool save_result = false;
 int main(int argc, char *argv[])
 {

@@ -20,9 +20,6 @@
 
 using namespace std;
 
-// =========================
-// Structure Definitions
-// =========================
 struct Point
 {
     vector<double> coords;
@@ -39,9 +36,7 @@ struct Centroid
 // Global dimension
 int dims = 0;
 
-// =========================
-// Extract k from filename (e.g., data_k3.csv => k=3)
-// =========================
+// Extract k value from filename (e.g., "data_k3.csv")
 int extract_k_from_filename(const string &filename)
 {
     smatch match;
@@ -57,9 +52,7 @@ int extract_k_from_filename(const string &filename)
     }
 }
 
-// =========================
-// Load CSV and set global dims
-// =========================
+// Load CSV file and determine global dimensionality
 vector<Point> load_csv(const string &filename)
 {
     vector<Point> points;
@@ -91,9 +84,7 @@ vector<Point> load_csv(const string &filename)
     return points;
 }
 
-// =========================
-// Compute squared Euclidean distance between a Point and a Centroid
-// =========================
+// Compute squared distance between a Point and a Centroid across all dimensions
 inline double compute_distance(const Point &p, const Centroid &c)
 {
     double sum = 0.0;
@@ -105,9 +96,7 @@ inline double compute_distance(const Point &p, const Centroid &c)
     return sum;
 }
 
-// =========================
-// Assign clusters (parallel with OpenMP)
-// =========================
+// Assign each point to the nearest centroid
 int assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
 {
     int changed = 0;
@@ -133,9 +122,7 @@ int assign_clusters(vector<Point> &points, const vector<Centroid> &centroids)
     return changed;
 }
 
-// =========================
-// Update centroids (MPI + OpenMP)
-// =========================
+// Update centroids by averaging all points assigned to each cluster
 double update_centroids(const vector<Point> &points, vector<Centroid> &centroids, int k, MPI_Comm comm, int local_changed)
 {
     const int slot = k * (dims + 1); // final slot for changed
@@ -197,9 +184,7 @@ double update_centroids(const vector<Point> &points, vector<Centroid> &centroids
     return local_combined.back(); // Return global_changed
 }
 
-// =========================
-// Check for convergence
-// =========================
+// Check if centroids have converged
 bool has_converged(const vector<Centroid> &old_c, const vector<Centroid> &new_c, double epsilon = 1e-4)
 {
     for (int i = 0; i < (int)old_c.size(); i++)
@@ -218,9 +203,7 @@ bool has_converged(const vector<Centroid> &old_c, const vector<Centroid> &new_c,
     return true;
 }
 
-// =========================
-// Run k-means algorithm
-// =========================
+// Main K-means iteration
 void run_kmeans(vector<Point> &local_points, vector<Centroid> &centroids, int k, int max_iter, MPI_Comm comm)
 {
     int rank;
@@ -238,9 +221,7 @@ void run_kmeans(vector<Point> &local_points, vector<Centroid> &centroids, int k,
     }
 }
 
-// =========================
-// Gather results to rank 0 using Gatherv
-// =========================
+// Gather local points (coordinates and cluster) to rank 0
 vector<Point> gather_results_to_rank0(const vector<Point> &local_points, int total_points,
                                       int rank, int size, MPI_Comm comm)
 {
@@ -426,7 +407,7 @@ int main(int argc, char *argv[])
     }
 
     string filename = argv[1];
-    // rank=0 extracts k
+
     int k = 0;
     if (rank == 0)
     {
@@ -438,7 +419,6 @@ int main(int argc, char *argv[])
     vector<double> send_buf;
     int total_points = 0;
 
-    // rank=0 loads data & flattens
     if (rank == 0)
     {
         full_data = load_csv(filename);
@@ -454,7 +434,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Broadcast total_points and dims
     MPI_Bcast(&total_points, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&dims, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
@@ -463,7 +442,6 @@ int main(int argc, char *argv[])
     int remain = total_points % size;
     int local_n = base + (rank < remain ? 1 : 0);
 
-    // Scatterv
     vector<int> counts(size), displs(size);
     if (rank == 0)
     {
@@ -497,22 +475,18 @@ int main(int argc, char *argv[])
     // Backup original local data for reuse across multiple trials
     vector<Point> original_local_data = local_data;
 
-    // Multiple trials
     const int trials = 100;
     double total_time = 0.0;
     vector<double> trial_times;
 
     for (int t = 0; t < trials; t++)
     {
-        // 1) Reset local data => clear previous cluster assignment
         local_data = original_local_data;
 
-        // 2) Randomly initialize centroids (only by rank 0)
         vector<Centroid> centroids(k, Centroid{});
         srand(42 + t);
         if (rank == 0)
         {
-            // srand(42 + t);  // Use different seed for each trial
             for (int i = 0; i < k; i++)
             {
                 centroids[i].coords.resize(dims);
@@ -537,16 +511,13 @@ int main(int argc, char *argv[])
         MPI_Barrier(MPI_COMM_WORLD);
         double start_time = MPI_Wtime();
 
-        // 3) Run K-means
+        // Run K-means
         run_kmeans(local_data, centroids, k, 200, MPI_COMM_WORLD);
 
         MPI_Barrier(MPI_COMM_WORLD);
         double end_time = MPI_Wtime();
         double elapsed_ms = (end_time - start_time) * 1000.0;
         total_time += elapsed_ms;
-
-        // 4) Optionally gather and print result of this trial
-        //    Here we only print trial 0 or the last trial
 
         if (t == 0)
         {

@@ -1,9 +1,4 @@
-/**************************************************************
- * gmm_hybrid.cpp – Gaussian Mixture Model, MPI + OpenMP
- *   – Each rank keeps only its own 1/P portion of the data (MPI_Scatterv)
- *   – Inner loops (E-step / M-step accumulations) parallelized with OpenMP
- *   – Rank 0 samples μ_k first, then MPI_Bcast μ/var/weight
- *************************************************************/
+/* MPI+OpenMp version of GMM */
 #include <mpi.h>
 #include <omp.h>
 #include <vector>
@@ -32,7 +27,6 @@ using std::vector;
 constexpr double EPS = 1e-9;
 double norm_factor = 1.0;
 
-/* -------------------- data structures -------------------- */
 struct Point
 {
     vector<double> coords;
@@ -45,7 +39,6 @@ struct Gaussian
     double weight{};
 };
 
-/* ------------------------ utils -------------------------- */
 int extract_k(const string &f)
 {
     std::smatch m;
@@ -136,7 +129,6 @@ double expectation_step(const vector<Point> &pts,
     return ll;
 }
 
-/* -------------------- M-step ----------------------------- */
 void maximization_step(const vector<Point> &pts,
                        vector<Gaussian> &comps,
                        const vector<vector<double>> &resp,
@@ -154,7 +146,7 @@ void maximization_step(const vector<Point> &pts,
     double *Sm_p = sum_mean.data();
     double *Sv_p = sum_var.data();
 
-    /* ---------- pass-1: Nk and Σ γ x ---------- */
+    // accumulate weighted sums for updating means and weights
 #pragma omp parallel for reduction(+ : Nk_p[0 : k], Sm_p[0 : k * dim]) \
     schedule(static)
     for (int i = 0; i < n; ++i)
@@ -176,7 +168,7 @@ void maximization_step(const vector<Point> &pts,
         for (int d = 0; d < dim; ++d)
             comps[c].mean[d] = Sm_p[c * dim + d] / (Nk_p[c] + EPS);
 
-    /* ---------- pass-2: Σ γ (x – μ)^2 ---------- */
+    // accumulate weighted squared differences for updating variances
     std::fill(Sv_p, Sv_p + k * dim, 0.0);
 
 #pragma omp parallel for reduction(+ : Sv_p[0 : k * dim]) schedule(static)
@@ -236,7 +228,6 @@ void run_gmm_mpi(const vector<Point> &pts,
     }
 }
 
-/* ---------------------- Debug ---------------------------- */
 void print_debug_global(const vector<Point> &pts,
                         const vector<vector<double>> &resp,
                         int k, int rank, MPI_Comm comm)
@@ -315,7 +306,6 @@ void save_execution_times(const vector<double> &times, const string &test_name, 
     ofs.close();
 }
 
-/* --------------------------- main ------------------------- */
 bool save_result = false;
 int main(int argc, char **argv)
 {
@@ -328,7 +318,6 @@ int main(int argc, char **argv)
     gethostname(hostname, sizeof(hostname));
 
     /*
-
     #ifdef _OPENMP
     #pragma omp parallel
         {

@@ -24,7 +24,6 @@ using namespace std;
 
 double norm_factor = 1.0;
 
-/* ---------------------------- Data -------------------------------- */
 struct Point
 {
     vector<double> coords;
@@ -34,12 +33,11 @@ struct Point
 };
 struct GaussianComponent
 {
-    vector<double> mean; // μ_k
-    vector<double> var;  // σ_k² (diagonal)
-    double weight = 1.0; // π_k
+    vector<double> mean;
+    vector<double> var;
+    double weight = 1.0;
 };
 
-/* ------------------------ CSV & helper ---------------------------- */
 int extract_k_from_filename(const string &f)
 {
     smatch m;
@@ -81,8 +79,7 @@ vector<Point> load_csv(const string &f)
     return pts;
 }
 
-// Compute the probability density of a point for a diagonal Gaussian.
-// Precompute 1/variance to avoid slow divisions.
+// Compute probability density using precomputed 1/variance (for efficiency)
 inline double gauss_pdf_diag(const Point &p, const GaussianComponent &g)
 {
     // After maximization_step(), g.var[d] already stores inv_var (1/σ²)
@@ -103,7 +100,7 @@ inline double gauss_pdf_diag(const Point &p, const GaussianComponent &g)
     return norm * exp(-0.5 * expn);
 }
 
-/* -------------------- initialization ------------------------------ */
+// Centroid initialization
 void init_comps(vector<GaussianComponent> &comps, const vector<Point> &pts)
 {
     int k = comps.size(), n = pts.size(), dim = pts[0].coords.size();
@@ -141,7 +138,6 @@ double expectation_step(const vector<Point> &pts,
     return ll;
 }
 
-/* --------------------- M‑step (no critical) ----------------------- */
 void maximization_step(const vector<Point> &pts,
                        vector<GaussianComponent> &comps,
                        const vector<vector<double>> &resp)
@@ -158,7 +154,7 @@ void maximization_step(const vector<Point> &pts,
     double *mean_a = sum_mean.data();
     double *var_a = sum_var.data();
 
-/* pass‑1 : accumulate Nk and mean numerators */
+    // accumulate weighted sums for updating means and weights
 #pragma omp parallel for reduction(+ : Nk_a[ : k], mean_a[ : k * dim]) schedule(static)
     for (int i = 0; i < n; ++i)
     {
@@ -177,7 +173,7 @@ void maximization_step(const vector<Point> &pts,
         for (int d = 0; d < dim; ++d)
             comps[c].mean[d] = mean_a[c * dim + d] / (Nk_a[c] + EPS);
 
-/* pass‑2 : accumulate variance numerators */
+    // accumulate weighted squared differences for updating variances
 #pragma omp parallel for reduction(+ : var_a[ : k * dim]) schedule(static)
     for (int i = 0; i < n; ++i)
     {
@@ -215,7 +211,6 @@ void maximization_step(const vector<Point> &pts,
             comps[c].var[d] = 1.0 / comps[c].var[d];
 }
 
-/* --------------------- EM driver --------------------------------- */
 void run_gmm(const vector<Point> &pts,
              vector<vector<double>> &resp,
              vector<GaussianComponent> &comps,
@@ -236,7 +231,6 @@ void run_gmm(const vector<Point> &pts,
     }
 }
 
-/* --------------------- Debug ------------------------------------- */
 void print_debug(const vector<Point> &pts, const vector<vector<double>> &resp, int k)
 {
     vector<int> cnt(k, 0);
@@ -310,7 +304,6 @@ void save_execution_times(const vector<double> &times, const string &test_name, 
     ofs.close();
 }
 
-/* --------------------- main -------------------------------------- */
 bool save_result = false;
 int main(int argc, char *argv[])
 {

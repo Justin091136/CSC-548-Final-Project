@@ -48,7 +48,6 @@ int extract_k_from_filename(const string &filename)
 }
 
 // Reads a CSV file where each line has one or more comma-separated floating values.
-// All lines must have the same number of columns, which will be the dimension.
 vector<Point> load_csv(const string &filename)
 {
     ifstream file(filename);
@@ -99,7 +98,7 @@ vector<Point> load_csv(const string &filename)
 inline double compute_distance(const Point &p, const Centroid &c)
 {
     double dist_sq = 0.0;
-    // Assuming p.coords.size() == c.coords.size()
+    // Assumes p and c have the same dimension.
     for (size_t d = 0; d < p.coords.size(); d++)
     {
         double diff = p.coords[d] - c.coords[d];
@@ -135,7 +134,7 @@ void update_centroids(const vector<Point> &points, vector<Centroid> &centroids, 
         return;
     int dim = static_cast<int>(points[0].coords.size());
 
-    // sum_coords[c][d] accumulates coordinate sums for cluster c in dimension d
+    // Accumulate sums of coordinates per cluster.
     vector<vector<double>> sum_coords(k, vector<double>(dim, 0.0));
     vector<int> count(k, 0);
 
@@ -166,7 +165,7 @@ void update_centroids(const vector<Point> &points, vector<Centroid> &centroids, 
     }
 }
 
-// Check if the centroids have converged within a given threshold epsilon (using squared distance)
+// Checks if centroids have stopped moving (within epsilon tolerance).
 bool has_converged(const vector<Centroid> &old_centroids, const vector<Centroid> &new_centroids, double epsilon = 1e-4)
 {
     if (old_centroids.size() != new_centroids.size())
@@ -225,7 +224,6 @@ void run_kmeans(vector<Point> &points, int k, int max_iters = 200)
 
         if (has_converged(prev_centroids, centroids))
         {
-            // Uncomment if you want to see the iteration count
             // cout << "Converged after " << iter + 1 << " iterations." << endl;
             break;
         }

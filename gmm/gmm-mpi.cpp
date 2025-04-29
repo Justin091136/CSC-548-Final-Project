@@ -1,10 +1,4 @@
-/**************************************************************
- * gmm-mpi.cpp – Gaussian Mixture Model, minimal MPI version
- *   – Each rank retains only its own 1/P slice of data
- *   – Rank 0 first draws k means (μ) from the global data, then broadcasts μ/var/weight
- *   – M-step uses only three Allreduce calls (Nk, Σγx, Σγ(x-μ)²)
- *   – Uses the same srand(42+t), convergence criterion, and debug behavior as the single-node version
- *************************************************************/
+/* MPI version of GMM */
 #include <mpi.h>
 #include <vector>
 #include <string>
@@ -33,7 +27,6 @@ using std::vector;
 double norm_factor = 1.0;
 constexpr double EPS = 1e-9;
 
-/* -------------------- data structures -------------------- */
 struct Point
 {
     vector<double> coords;
@@ -46,7 +39,6 @@ struct Gaussian
     double weight{};
 };
 
-/* ------------------------ utils -------------------------- */
 int extract_k(const string &f)
 {
     std::smatch m;
@@ -130,17 +122,16 @@ double expectation_step(const vector<Point> &pts,
         }
         if (denom < 1e-20)
             denom = 1e-20;
-        double inv_denom = 1.0 / denom; // new
+        double inv_denom = 1.0 / denom;
         for (int c = 0; c < k; ++c)
         {
-            resp[i][c] *= inv_denom; // changed to multiply
+            resp[i][c] *= inv_denom;
         }
         ll += std::log(denom);
     }
     return ll;
 }
 
-/* -------------------- M-step ----------------------------- */
 void maximization_step(const vector<Point> &pts,
                        vector<Gaussian> &comps,
                        const vector<vector<double>> &resp,
@@ -216,7 +207,6 @@ void maximization_step(const vector<Point> &pts,
         comps[c].weight /= sum_w;
 }
 
-/* ------------------- EM driver --------------------------- */
 void run_gmm_mpi(const vector<Point> &pts,
                  vector<Gaussian> &comps,
                  vector<vector<double>> &resp,
@@ -243,7 +233,6 @@ void run_gmm_mpi(const vector<Point> &pts,
     }
 }
 
-/* -------------------- debug print ------------------------- */
 void print_debug_global(const vector<Point> &pts,
                         const vector<vector<double>> &resp,
                         int k, int rank, MPI_Comm comm)
@@ -323,7 +312,6 @@ void save_execution_times(const vector<double> &times, const string &test_name, 
     ofs.close();
 }
 
-/* --------------------------- main ------------------------- */
 bool save_result = false;
 int main(int argc, char **argv)
 {
@@ -397,7 +385,6 @@ int main(int argc, char **argv)
         }
     }
 
-    /* ==== Benchmark ==== */
     const int trials = 100;
     double acc_ms = 0.0;
     vector<double> trial_times;

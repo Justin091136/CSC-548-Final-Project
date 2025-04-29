@@ -29,7 +29,7 @@ struct Centroid
     vector<double> coords;
 };
 
-// Parse k from filename like: data_k3.csv
+// Extract k from a filename such as "data_k3.csv"
 int extract_k_from_filename(const string &filename)
 {
     smatch match;
@@ -191,7 +191,7 @@ void print_debug_summary(const vector<Point> &points, int k)
         cout << "Cluster " << i << ": " << count[i] << " points\n";
 }
 
-// Helper to create a directory if it doesn't exist
+// Create directory if it does not exist
 void create_dir_if_not_exists(const string &dir_path)
 {
     struct stat info;
@@ -226,7 +226,7 @@ string get_clean_test_name(const string &filename)
     return base;
 }
 
-// Save execution times to CSV under "results/runtime_csv" directory
+// Save execution times to "results/runtime_csv"
 void save_execution_times(const vector<double> &times, const string &test_name, const string &version_name)
 {
     string results_dir = "results";
@@ -268,7 +268,7 @@ int main(int argc, char *argv[])
 
     const int trials = 100;
     double total_time = 0;
-    vector<double> trial_times; // Store individual execution times
+    vector<double> trial_times;
 
     for (int t = 0; t < trials; ++t)
     {

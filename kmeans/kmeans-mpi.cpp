@@ -50,7 +50,7 @@ int extract_k_from_filename(const string &filename)
 // This global variable will store the dimension count once we parse the first line
 int dims = 0;
 
-// Load CSV that may contain multiple columns (dimensions)
+// Load CSV file into a list of points
 vector<Point> load_csv(const string &filename)
 {
     vector<Point> points;
@@ -185,14 +185,13 @@ bool has_converged(const vector<Centroid> &old_centroids, const vector<Centroid>
     return true;
 }
 
-// Gather the final (x, y, cluster) data on rank 0; extended to dims as well
-// but we only need to gather coords and cluster
+// Gather local points (coordinates and cluster) to rank 0
 vector<Point> gather_results_to_rank0(const vector<Point> &local_points, int total_points, int rank, int size, MPI_Comm comm)
 {
     int local_n = (int)local_points.size();
 
     // Flatten local points to store: [coord0, coord1, ..., coord(dims-1), cluster]
-    // That means each point is dims + 1 in length
+    // Meaning each point is dims + 1 in length
     vector<double> send_buf(local_n * (dims + 1));
     for (int i = 0; i < local_n; ++i)
     {
@@ -435,7 +434,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    // recv_buf for local portion
+    // Buffer for received local points
     vector<double> recv_buf(local_n * dims);
 
     // Scatter the flattened data
