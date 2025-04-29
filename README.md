@@ -2,6 +2,12 @@
 
 This repository contains the final project for NCSU CSC 548.
 
+## Project description
+
+This project implements parallel versions of the K-Means and Gaussian Mixture Model (GMM) clustering algorithms using OpenMP, MPI, and a hybrid MPI+OpenMP approach.  
+The goal is to accelerate clustering on large datasets by leveraging shared-memory and distributed-memory parallelism.  
+Both algorithms were tested on synthetic datasets with different cluster counts and dimensions to evaluate runtime, speedup, and efficiency across different parallelization strategies.
+
 ## Building
 
 To build all binaries, simply run:
@@ -46,4 +52,3 @@ For example:
 
 - `data_overlap_med_k3` means the dataset contains 3 clusters (k = 3).
 - `data_highk_k10.csv` indicates the dataset contains 10 clusters (k = 10).
-
