@@ -8,7 +8,10 @@
 #include <string>
 #include <regex>
 #include <limits>
+#include <iomanip>
 #include <chrono>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 using namespace std;
 
@@ -16,7 +19,8 @@ using namespace std;
 #define M_PI 3.14159265358979323846
 #endif
 
-/* ---------- Data Structures ---------- */
+double norm_factor = 1.0;
+
 struct Point
 {
     vector<double> coords;
@@ -27,12 +31,11 @@ struct Point
 
 struct GaussianComponent
 {
-    vector<double> mean; // μ_k
-    vector<double> var;  // σ_k^2  (diagonal covariance)
-    double weight = 1.0; // π_k
+    vector<double> mean;
+    vector<double> var;
+    double weight = 1.0;
 };
 
-/* ---------- Utility (unchanged) ---------- */
 int extract_k_from_filename(const string &filename)
 {
     smatch match;
@@ -75,27 +78,28 @@ vector<Point> load_csv(const string &filename)
     return points;
 }
 
-/* === Gaussian PDF for diagonal Σ === */
-inline double gaussian_pdf_diag(const Point &p,
-                                const GaussianComponent &comp)
+// Compute the probability density of a point for a diagonal Gaussian.
+// Precompute 1/variance to avoid slow divisions.
+inline double gaussian_pdf_diag(const Point &p, const GaussianComponent &g)
 {
-    const double EPS = 1e-9; // avoid division by zero
-    double exponent = 0.0, denom = 1.0;
+    // After maximization_step(), g.var[d] already stores inv_var (1/σ²)
+    double expn = 0.0, inv_denom = 1.0;
+
     for (size_t d = 0; d < p.coords.size(); ++d)
     {
-        double var = comp.var[d] + EPS;
-        double diff = p.coords[d] - comp.mean[d];
-        exponent += (diff * diff) / var;
-        denom *= var;
+        double inv_var = g.var[d];
+        double diff = p.coords[d] - g.mean[d];
+        expn += diff * diff * inv_var;
+        inv_denom *= inv_var;
     }
-    if (denom < 1e-300)
-        denom = 1e-300;
-    double norm_const = pow(2.0 * M_PI, -0.5 * p.coords.size()) *
-                        pow(denom, -0.5);
-    return norm_const * exp(-0.5 * exponent);
+
+    if (inv_denom < 1e-300)
+        inv_denom = 1e-300;
+
+    double norm = norm_factor * sqrt(inv_denom);
+    return norm * exp(-0.5 * expn);
 }
 
-/* === Initialization: K‑Means++ style (simplified) === */
 void initialize_components(vector<GaussianComponent> &comps,
                            const vector<Point> &points)
 {
@@ -112,36 +116,31 @@ void initialize_components(vector<GaussianComponent> &comps,
     }
 }
 
-/* === Expectation Step === */
-double expectation_step(const vector<Point> &points,
-                        const vector<GaussianComponent> &comps,
-                        vector<vector<double>> &resp)
+// Perform the E-step: compute and normalize responsibilities for each point.
+double expectation_step(const vector<Point> &points, const vector<GaussianComponent> &comps, vector<vector<double>> &resp)
 {
-    int n = (int)points.size();
-    int k = (int)comps.size();
+    int n = static_cast<int>(points.size());
+    int k = static_cast<int>(comps.size());
     double log_likelihood = 0.0;
 
-    // PARALLEL CANDIDATE: loop over points
     for (int i = 0; i < n; ++i)
     {
         double denom = 0.0;
         for (int c = 0; c < k; ++c)
         {
-            resp[i][c] = comps[c].weight *
-                         gaussian_pdf_diag(points[i], comps[c]);
+            resp[i][c] = comps[c].weight * gaussian_pdf_diag(points[i], comps[c]);
             denom += resp[i][c];
         }
-        // Normalize γ_ik
         if (denom < 1e-20)
             denom = 1e-20;
+        double inv_denom = 1.0 / denom;
         for (int c = 0; c < k; ++c)
-            resp[i][c] /= denom;
+            resp[i][c] *= inv_denom;
         log_likelihood += log(denom);
     }
     return log_likelihood;
 }
 
-/* === Maximization Step === */
 void maximization_step(const vector<Point> &points,
                        vector<GaussianComponent> &comps,
                        const vector<vector<double>> &resp)
@@ -200,6 +199,19 @@ void maximization_step(const vector<Point> &points,
             comps[c].var[d] = sum_var[c][d] / (Nk[c] + EPS) + EPS;
         }
     }
+
+    // Make sure all component weights add up to 1.0,
+    // so the model remains a valid probability distribution.
+    double sum_w = 0.0;
+    for (int c = 0; c < k; ++c)
+        sum_w += comps[c].weight;
+    for (int c = 0; c < k; ++c)
+        comps[c].weight /= sum_w;
+
+    // Precompute inv_var = 1/σ² after updating variance
+    for (int c = 0; c < k; ++c)
+        for (int d = 0; d < dim; ++d)
+            comps[c].var[d] = 1.0 / comps[c].var[d];
 }
 
 void print_debug_summary(const vector<Point> &points, const vector<vector<double>> &resp, int k)
@@ -227,17 +239,10 @@ void print_debug_summary(const vector<Point> &points, const vector<vector<double
     }
 }
 
-/* === EM Driver === */
-/* ================================================================
- *  GMM driver — uses pre‑allocated responsibility matrix (resp)
- *  points : input samples            (size n)
- *  resp   : n × k responsibility     (modified in‑place)
- *  comps  : Gaussian components      (modified in‑place)
- * ================================================================ */
 void run_gmm(const vector<Point> &points,
              vector<vector<double>> &resp,
              vector<GaussianComponent> &comps,
-             int max_iters = 100, double tol = 1e-4)
+             int max_iters = 200, double tol = 1e-4)
 {
     if (points.empty())
         return;
@@ -256,9 +261,66 @@ void run_gmm(const vector<Point> &points,
     }
 }
 
-/* ================================================================
- *  main – time only run_gmm(), then print hard‑cluster counts
- * ================================================================ */
+void create_dir_if_not_exists(const string &dir_path)
+{
+    struct stat info;
+    if (stat(dir_path.c_str(), &info) != 0)
+    {
+        if (mkdir(dir_path.c_str(), 0755) != 0)
+        {
+            cerr << "Error: Failed to create directory: " << dir_path << endl;
+            exit(1);
+        }
+    }
+    else if (!(info.st_mode & S_IFDIR))
+    {
+        cerr << "Error: '" << dir_path << "' exists but is not a directory.\n";
+        exit(1);
+    }
+}
+
+string get_clean_test_name(const string &filename)
+{
+    // Remove path
+    size_t last_slash = filename.find_last_of("/\\");
+    string base = (last_slash == string::npos) ? filename : filename.substr(last_slash + 1);
+
+    // Remove .csv
+    size_t dot_pos = base.rfind('.');
+    if (dot_pos != string::npos)
+    {
+        base = base.substr(0, dot_pos);
+    }
+    return base;
+}
+
+void save_execution_times(const vector<double> &times, const string &test_name, const string &version_name)
+{
+    string results_dir = "results";
+    string runtime_csv_dir = results_dir + "/runtime_csv";
+    string test_dir = runtime_csv_dir + "/" + test_name;
+
+    create_dir_if_not_exists(results_dir);
+    create_dir_if_not_exists(runtime_csv_dir);
+    create_dir_if_not_exists(test_dir);
+
+    string output_file = test_dir + "/execution_times_" + version_name + ".csv";
+    std::ofstream ofs(output_file);
+    if (!ofs.is_open())
+    {
+        std::cerr << "Error: Failed to open output file: " << output_file << std::endl;
+        exit(1);
+    }
+
+    ofs << "trial,time_ms\n";
+    for (int i = 0; i < (int)times.size(); ++i)
+    {
+        ofs << (i + 1) << "," << std::fixed << std::setprecision(3) << times[i] << "\n";
+    }
+    ofs.close();
+}
+
+bool save_result = false;
 int main(int argc, char *argv[])
 {
     ios::sync_with_stdio(false);
@@ -275,9 +337,12 @@ int main(int argc, char *argv[])
     /* ---- load data only once ---- */
     const vector<Point> master_points = load_csv(filename);
     int n = static_cast<int>(master_points.size());
+    int dim = master_points[0].coords.size();
+    norm_factor = pow(2.0 * M_PI, -0.5 * dim);
 
-    const int trials = 50;
+    const int trials = 100;
     double total_ms = 0.0;
+    vector<double> trial_times;
 
     for (int t = 0; t < trials; ++t)
     {
@@ -288,17 +353,27 @@ int main(int argc, char *argv[])
         vector<vector<double>> resp(n, vector<double>(k));
         vector<GaussianComponent> comps(k);
 
-        srand(42 + t); // new seed each trial
+        srand(42 + t);
 
         auto t0 = chrono::high_resolution_clock::now();
         run_gmm(points, resp, comps); //  ← timed region
         auto t1 = chrono::high_resolution_clock::now();
 
-        total_ms += chrono::duration<double, milli>(t1 - t0).count();
+        double elapsed = chrono::duration<double, milli>(t1 - t0).count();
+        total_ms += elapsed;
+        trial_times.push_back(elapsed);
 
         if (t == 0 && n <= 500)
             print_debug_summary(points, resp, k);
     }
     cout << "Average time over " << trials << " runs: "
          << (total_ms / trials) << " ms\n";
+
+    if (save_result)
+    {
+        string test_name = get_clean_test_name(filename);
+        save_execution_times(trial_times, test_name, "gmm_seq");
+    }
+
+    return 0;
 }

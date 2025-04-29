@@ -1,9 +1,4 @@
-/**************************************************************
- * gmm_hybrid.cpp – Gaussian Mixture Model, MPI + OpenMP
- *   – Each rank keeps only its own 1/P portion of the data (MPI_Scatterv)
- *   – Inner loops (E-step / M-step accumulations) parallelized with OpenMP
- *   – Rank 0 samples μ_k first, then MPI_Bcast μ/var/weight
- *************************************************************/
+/* MPI+OpenMp version of GMM */
 #include <mpi.h>
 #include <omp.h>
 #include <vector>
@@ -17,7 +12,12 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <unistd.h>
+#include <iomanip>
+#include <sys/stat.h>
+#include <sys/types.h>
 
+using namespace std;
 using std::string;
 using std::vector;
 
@@ -25,8 +25,8 @@ using std::vector;
 #define M_PI 3.14159265358979323846
 #endif
 constexpr double EPS = 1e-9;
+double norm_factor = 1.0;
 
-/* -------------------- data structures -------------------- */
 struct Point
 {
     vector<double> coords;
@@ -39,7 +39,6 @@ struct Gaussian
     double weight{};
 };
 
-/* ------------------------ utils -------------------------- */
 int extract_k(const string &f)
 {
     std::smatch m;
@@ -82,23 +81,26 @@ vector<Point> load_csv(const string &fn)
     return pts;
 }
 
-/* ---------------- Gaussian pdf --------------------------- */
-inline double pdf_diag(const Point &p, const Gaussian &g)
+// Compute the probability density of a point for a diagonal Gaussian.
+// Precompute 1/variance to avoid slow divisions.
+inline double gaussian_pdf_diag(const Point &p, const Gaussian &g)
 {
-    double e = 0., den = 1.;
+    double e = 0.0, inv_denom = 1.0;
     for (size_t d = 0; d < p.coords.size(); ++d)
     {
-        double var = g.var[d] + EPS, diff = p.coords[d] - g.mean[d];
-        e += diff * diff / var;
-        den *= var;
+        double var = g.var[d] + EPS;
+        double inv_var = 1.0 / var;
+        double diff = p.coords[d] - g.mean[d];
+        e += diff * diff * inv_var;
+        inv_denom *= inv_var;
     }
-    if (den < 1e-300)
-        den = 1e-300;
-    double norm = std::pow(2. * M_PI, -0.5 * p.coords.size()) * std::pow(den, -0.5);
+    if (inv_denom < 1e-300)
+        inv_denom = 1e-300;
+    double norm = norm_factor * std::sqrt(inv_denom);
     return norm * std::exp(-0.5 * e);
 }
 
-/* -------------------- E-step ----------------------------- */
+// Perform the E-step: compute and normalize responsibilities for each point.
 double expectation_step(const vector<Point> &pts,
                         const vector<Gaussian> &comps,
                         vector<vector<double>> &resp)
@@ -106,25 +108,27 @@ double expectation_step(const vector<Point> &pts,
     int n = pts.size(), k = comps.size();
     double ll = 0.0;
 
-#pragma omp parallel for reduction(+ : ll) schedule(static)
+#pragma omp parallel for reduction(+ : ll)
     for (int i = 0; i < n; ++i)
     {
-        double denom = 0.;
+        double denom = 0.0;
         for (int c = 0; c < k; ++c)
         {
-            resp[i][c] = comps[c].weight * pdf_diag(pts[i], comps[c]);
+            resp[i][c] = comps[c].weight * gaussian_pdf_diag(pts[i], comps[c]);
             denom += resp[i][c];
         }
         if (denom < 1e-20)
             denom = 1e-20;
+        double inv_denom = 1.0 / denom;
         for (int c = 0; c < k; ++c)
-            resp[i][c] /= denom;
+        {
+            resp[i][c] *= inv_denom;
+        }
         ll += std::log(denom);
     }
     return ll;
 }
 
-/* -------------------- M-step ----------------------------- */
 void maximization_step(const vector<Point> &pts,
                        vector<Gaussian> &comps,
                        const vector<vector<double>> &resp,
@@ -142,7 +146,7 @@ void maximization_step(const vector<Point> &pts,
     double *Sm_p = sum_mean.data();
     double *Sv_p = sum_var.data();
 
-    /* ---------- pass-1: Nk and Σ γ x ---------- */
+    // accumulate weighted sums for updating means and weights
 #pragma omp parallel for reduction(+ : Nk_p[0 : k], Sm_p[0 : k * dim]) \
     schedule(static)
     for (int i = 0; i < n; ++i)
@@ -164,7 +168,7 @@ void maximization_step(const vector<Point> &pts,
         for (int d = 0; d < dim; ++d)
             comps[c].mean[d] = Sm_p[c * dim + d] / (Nk_p[c] + EPS);
 
-    /* ---------- pass-2: Σ γ (x – μ)^2 ---------- */
+    // accumulate weighted squared differences for updating variances
     std::fill(Sv_p, Sv_p + k * dim, 0.0);
 
 #pragma omp parallel for reduction(+ : Sv_p[0 : k * dim]) schedule(static)
@@ -191,6 +195,14 @@ void maximization_step(const vector<Point> &pts,
         for (int d = 0; d < dim; ++d)
             comps[c].var[d] = Sv_p[c * dim + d] / (Nk_p[c] + EPS) + EPS;
     }
+
+    // Make sure all component weights add up to 1.0,
+    // so the model remains a valid probability distribution.
+    double sum_w = 0.0;
+    for (int c = 0; c < k; ++c)
+        sum_w += comps[c].weight;
+    for (int c = 0; c < k; ++c)
+        comps[c].weight /= sum_w;
 }
 
 /* ----------------- EM loop driver ------------------------ */
@@ -198,7 +210,7 @@ void run_gmm_mpi(const vector<Point> &pts,
                  vector<Gaussian> &comps,
                  vector<vector<double>> &resp,
                  MPI_Comm comm,
-                 int max_it = 100, double tol = 1e-4)
+                 int max_it = 200, double tol = 1e-4)
 {
     double prev_ll = -std::numeric_limits<double>::infinity();
     for (int it = 0; it < max_it; ++it)
@@ -216,7 +228,6 @@ void run_gmm_mpi(const vector<Point> &pts,
     }
 }
 
-/* ---------------------- Debug ---------------------------- */
 void print_debug_global(const vector<Point> &pts,
                         const vector<vector<double>> &resp,
                         int k, int rank, MPI_Comm comm)
@@ -236,13 +247,98 @@ void print_debug_global(const vector<Point> &pts,
     }
 }
 
-/* --------------------------- main ------------------------- */
+void create_dir_if_not_exists(const string &dir_path)
+{
+    struct stat info;
+    if (stat(dir_path.c_str(), &info) != 0)
+    {
+        if (mkdir(dir_path.c_str(), 0755) != 0)
+        {
+            cerr << "Error: Failed to create directory: " << dir_path << endl;
+            exit(1);
+        }
+    }
+    else if (!(info.st_mode & S_IFDIR))
+    {
+        cerr << "Error: '" << dir_path << "' exists but is not a directory.\n";
+        exit(1);
+    }
+}
+
+string get_clean_test_name(const string &filename)
+{
+    // Remove path
+    size_t last_slash = filename.find_last_of("/\\");
+    string base = (last_slash == string::npos) ? filename : filename.substr(last_slash + 1);
+
+    // Remove .csv
+    size_t dot_pos = base.rfind('.');
+    if (dot_pos != string::npos)
+    {
+        base = base.substr(0, dot_pos);
+    }
+    return base;
+}
+
+void save_execution_times(const vector<double> &times, const string &test_name, const string &version_name)
+{
+    string results_dir = "results";
+    string runtime_csv_dir = results_dir + "/runtime_csv";
+    string test_dir = runtime_csv_dir + "/" + test_name;
+
+    create_dir_if_not_exists(results_dir);
+    create_dir_if_not_exists(runtime_csv_dir);
+    create_dir_if_not_exists(test_dir);
+
+    string output_file = test_dir + "/execution_times_" + version_name + ".csv";
+    std::ofstream ofs(output_file);
+    if (!ofs.is_open())
+    {
+        std::cerr << "Error: Failed to open output file: " << output_file << std::endl;
+        exit(1);
+    }
+
+    ofs << "trial,time_ms\n";
+    for (int i = 0; i < (int)times.size(); ++i)
+    {
+        ofs << (i + 1) << "," << std::fixed << std::setprecision(3) << times[i] << "\n";
+    }
+    ofs.close();
+}
+
+bool save_result = false;
 int main(int argc, char **argv)
 {
     MPI_Init(&argc, &argv);
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+
+    /*
+    #ifdef _OPENMP
+    #pragma omp parallel
+        {
+            int omp_rank = omp_get_thread_num();
+            int omp_size = omp_get_num_threads();
+            if (omp_rank == 0)
+            { // only one thread prints per process
+                std::cout << "Rank " << rank << "/" << size
+                          << " running on " << hostname
+                          << ", PID " << getpid()
+                          << ", OpenMP threads: " << omp_size
+                          << std::endl;
+            }
+        }
+    #else
+        if (rank == 0)
+        {
+            std::cout << "Compiled without OpenMP support." << std::endl;
+        }
+    #endif
+    */
 
     if (argc < 2)
     {
@@ -251,15 +347,15 @@ int main(int argc, char **argv)
         MPI_Finalize();
         return 0;
     }
-    string file = argv[1];
-    int k = extract_k(file);
+    string filename = argv[1];
+    int k = extract_k(filename);
 
     /* Read file on rank 0 */
     vector<double> flat_all;
     int global_n = 0, dim = 0;
     if (rank == 0)
     {
-        auto full = load_csv(file);
+        auto full = load_csv(filename);
         global_n = full.size();
         dim = full[0].coords.size();
         flat_all.resize(global_n * dim);
@@ -269,6 +365,8 @@ int main(int argc, char **argv)
     }
     MPI_Bcast(&dim, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&global_n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    norm_factor = std::pow(2.0 * M_PI, -0.5 * dim);
+
     if (global_n < k)
     {
         if (rank == 0)
@@ -298,8 +396,10 @@ int main(int argc, char **argv)
             local_pts[i].coords[d] = local_flat[i * dim + d];
 
     /* --- prepare OpenMP --- */
-    const int trials = 50;
-    double acc_ms = 0.;
+    const int trials = 100;
+    double acc_ms = 0.0;
+    vector<double> trial_times;
+
     for (int t = 0; t < trials; ++t)
     {
         /* Rank 0 randomly initializes μ/var/π, then broadcasts */
@@ -335,17 +435,27 @@ int main(int argc, char **argv)
         MPI_Barrier(MPI_COMM_WORLD);
         auto t1 = std::chrono::high_resolution_clock::now();
         double local_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        double sum_ms;
-        MPI_Reduce(&local_ms, &sum_ms, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
         if (rank == 0)
-            acc_ms += sum_ms / size;
+        {
+            acc_ms += local_ms;
+            trial_times.push_back(local_ms);
+        }
 
         if (t == 0 && global_n <= 500)
             print_debug_global(local_pts, resp, k, rank, MPI_COMM_WORLD);
     }
     if (rank == 0)
+    {
         std::cout << "Average time over " << trials << " runs: "
                   << acc_ms / trials << " ms\n";
+
+        if (save_result)
+        {
+            string test_name = get_clean_test_name(filename);
+            save_execution_times(trial_times, test_name, "gmm_hybrid");
+        }
+    }
 
     MPI_Finalize();
     return 0;
